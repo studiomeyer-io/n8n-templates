@@ -242,9 +242,9 @@
         "operation": "message",
         "modelId": {
           "__rl": true,
-          "value": "gpt-4o-mini",
+          "value": "gpt-5-mini",
           "mode": "list",
-          "cachedResultName": "gpt-4o-mini"
+          "cachedResultName": "gpt-5-mini"
         },
         "messages": {
           "values": [
@@ -274,7 +274,7 @@
       "parameters": {
         "modelId": {
           "__rl": true,
-          "value": "claude-haiku-4-5-20251001",
+          "value": "claude-haiku-4-5",
           "mode": "list",
           "cachedResultName": "claude-haiku-4-5"
         },

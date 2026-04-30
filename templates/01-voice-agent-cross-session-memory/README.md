@@ -4,7 +4,7 @@
 
 ## What this does
 
-A voice provider (Vapi, Retell, Bland, or any custom telephony bridge that posts JSON) sends a webhook when a call ends. The workflow looks up the caller's phone in StudioMeyer Memory, retrieves prior interactions, builds a context-aware prompt, and replies through the LLM **you choose** (default: OpenAI GPT-4o-mini, alternative: Anthropic Claude Haiku 4.5). After the reply is sent, it persists the new observation back to memory.
+A voice provider (Vapi, Retell, Bland, or any custom telephony bridge that posts JSON) sends a webhook when a call ends. The workflow looks up the caller's phone in StudioMeyer Memory, retrieves prior interactions, builds a context-aware prompt, and replies through the LLM **you choose** (default: OpenAI gpt-5-mini, alternative: Anthropic Claude Haiku 4.5). After the reply is sent, it persists the new observation back to memory.
 
 The result is a voice agent that knows your customer the second time they call. No vector-database setup, no Postgres extension, no manual schema work — just one credential and three minutes to import.
 
