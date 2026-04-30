@@ -3,8 +3,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Voice Agent with Cross-Session Memory\n\n**Stack:** Vapi/Retell webhook → StudioMeyer Memory → Claude → reply + persist outcome.\n\n**What you set up:**\n1. Two SET-ME markers (yellow notes below).\n2. StudioMeyer Memory credential (one-time, instance-wide).\n3. Anthropic credential.\n4. Vapi/Retell server URL → this webhook URL.\n\n**Memory model:** Each unique caller phone becomes an `Entity` of type `caller`. Every call appends an observation. The next call retrieves the caller's history before the LLM speaks.",
-        "height": 280,
+        "content": "## Voice Agent with Cross-Session Memory (Multi-Provider)\n\n**Stack:** Vapi/Retell webhook → StudioMeyer Memory → LLM (you choose: OpenAI, Anthropic, or any provider) → reply + persist outcome.\n\n**Multi-Provider Switch:** the `Set Provider` node decides which LLM responds. Default is `openai`. Change to `anthropic` (or add your own branch) without rebuilding the rest of the workflow.\n\n**Memory model:** Each unique caller phone becomes an `Entity` of type `caller`. Every call appends an observation. The next call retrieves the caller's history before the LLM speaks.",
+        "height": 320,
         "width": 480,
         "color": 6
       },
@@ -16,7 +16,7 @@
     },
     {
       "parameters": {
-        "content": ">> SET ME <<\n\n**Webhook URL** for Vapi/Retell server URL.\n\nAfter activation, copy this node's Production URL into your voice provider's Server URL setting. Vapi sends `end-of-call-report` events here.\n\nFor Retell: use the Webhook trigger payload format mapping in the Code node below.",
+        "content": ">> SET ME <<\n\n**Webhook URL** for Vapi/Retell server URL.\n\nAfter activation, copy this node's Production URL into your voice provider's Server URL setting. Vapi sends `end-of-call-report` events here, Retell sends `call_ended`. The Code node below handles both shapes.",
         "height": 200,
         "width": 320,
         "color": 5
@@ -137,16 +137,138 @@
     },
     {
       "parameters": {
-        "content": ">> SET ME <<\n\n**Anthropic credential** required.\n\nCreate one in Credentials → New → Anthropic API. The key has a free tier; use Claude Haiku 4.5 for sub-second voice latency or Claude Sonnet 4.6 for richer replies.",
-        "height": 200,
-        "width": 320,
+        "content": ">> PICK YOUR LLM <<\n\nThis Set node decides the provider. Default is `openai`. Change to `anthropic` (or any value matching a Switch branch below) without rebuilding the rest of the flow.\n\n**Add a third provider** (e.g. Gemini, Mistral) by adding a new branch in the Switch node + a corresponding LLM node + connecting it back to `Normalize LLM Output`. Memory writes stay identical.",
+        "height": 240,
+        "width": 360,
         "color": 5
       },
-      "id": "note-anthropic",
-      "name": "Sticky Note - Anthropic",
+      "id": "note-provider",
+      "name": "Sticky Note - Provider Switch",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [1600, 40]
+      "position": [1600, -100]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-provider",
+              "name": "provider",
+              "value": "openai",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "voice-7-set-provider",
+      "name": "Set Provider",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1600, 280]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rule-openai",
+                    "leftValue": "={{ $json.provider }}",
+                    "rightValue": "openai",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "openai"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rule-anthropic",
+                    "leftValue": "={{ $json.provider }}",
+                    "rightValue": "anthropic",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "anthropic"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "fallback"
+        }
+      },
+      "id": "voice-8-switch",
+      "name": "Route by Provider",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1820, 280]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.systemPrompt }}",
+              "role": "system"
+            },
+            {
+              "content": "={{ $json.transcript }}",
+              "role": "user"
+            }
+          ]
+        },
+        "jsonOutput": false,
+        "options": {
+          "maxTokens": 200,
+          "temperature": 0.4
+        }
+      },
+      "id": "voice-9a-openai",
+      "name": "OpenAI Reply",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.7,
+      "position": [2040, 160]
     },
     {
       "parameters": {
@@ -173,56 +295,66 @@
           "temperature": 0.4
         }
       },
-      "id": "voice-7-claude",
-      "name": "Claude Reply",
+      "id": "voice-9b-anthropic",
+      "name": "Anthropic Reply",
       "type": "n8n-nodes-base.anthropic",
       "typeVersion": 1,
-      "position": [1600, 280]
+      "position": [2040, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize the LLM output across providers into a single field `replyText`.\n// OpenAI:    $json.choices[0].message.content\n// Anthropic: $json.content[0].text\n// Fallback:  any string-shaped property we can find.\n\nconst raw = $input.first().json;\n\nlet replyText = '';\n\n// OpenAI shape\nif (raw?.choices?.[0]?.message?.content) {\n  replyText = raw.choices[0].message.content;\n}\n// Anthropic shape\nelse if (Array.isArray(raw?.content) && raw.content[0]?.text) {\n  replyText = raw.content[0].text;\n}\n// Some n8n-wrapped variants\nelse if (raw?.message?.content) {\n  replyText = raw.message.content;\n}\nelse if (raw?.text) {\n  replyText = raw.text;\n}\nelse if (raw?.reply) {\n  replyText = raw.reply;\n}\nelse {\n  replyText = '(LLM returned no text — check provider response shape)';\n}\n\nreturn [{\n  json: {\n    replyText: String(replyText).trim(),\n    provider: $('Set Provider').item.json.provider,\n  },\n}];"
+      },
+      "id": "voice-10-normalize-output",
+      "name": "Normalize LLM Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2280, 280]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\n  \"reply\": \"{{ $json.content?.[0]?.text ?? $json.reply ?? '' }}\",\n  \"caller_phone\": \"{{ $('Normalize Payload').item.json.callerPhone }}\",\n  \"call_id\": \"{{ $('Normalize Payload').item.json.callId }}\"\n}",
+        "responseBody": "={\n  \"reply\": \"{{ $json.replyText }}\",\n  \"caller_phone\": \"{{ $('Normalize Payload').item.json.callerPhone }}\",\n  \"call_id\": \"{{ $('Normalize Payload').item.json.callId }}\",\n  \"provider\": \"{{ $json.provider }}\"\n}",
         "options": {}
       },
-      "id": "voice-8-respond",
+      "id": "voice-11-respond",
       "name": "Respond to Voice Provider",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1820, 280]
+      "position": [2500, 280]
     },
     {
       "parameters": {
         "resource": "entity",
         "operation": "observe",
         "entityRef": "={{ $('Normalize Payload').item.json.callerPhone }}",
-        "observations": "=Call on {{ $('Normalize Payload').item.json.receivedAt }} — Caller said: {{ $('Normalize Payload').item.json.transcript.slice(0, 200) }} | Agent replied: {{ ($('Claude Reply').item.json.content?.[0]?.text ?? '').slice(0, 200) }}"
+        "observations": "=Call on {{ $('Normalize Payload').item.json.receivedAt }} — Caller said: {{ $('Normalize Payload').item.json.transcript.slice(0, 200) }} | Agent replied ({{ $json.provider }}): {{ $json.replyText.slice(0, 200) }}"
       },
-      "id": "voice-9-entity-observe",
+      "id": "voice-12-entity-observe",
       "name": "Memory: Observe Call",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
-      "position": [2060, 200]
+      "position": [2720, 200]
     },
     {
       "parameters": {
         "resource": "memory",
         "operation": "learn",
-        "content": "=Voice call with {{ $('Normalize Payload').item.json.callerPhone }} on {{ $('Normalize Payload').item.json.receivedAt }}: {{ $('Claude Reply').item.json.content?.[0]?.text ?? '' }}",
+        "content": "=Voice call with {{ $('Normalize Payload').item.json.callerPhone }} on {{ $('Normalize Payload').item.json.receivedAt }} (provider: {{ $json.provider }}): {{ $json.replyText }}",
         "category": "insight",
         "project": "voice-agent",
-        "tags": "=voice-agent, caller-{{ $('Normalize Payload').item.json.callerPhone }}",
+        "tags": "=voice-agent, caller-{{ $('Normalize Payload').item.json.callerPhone }}, provider-{{ $json.provider }}",
         "confidence": 0.7
       },
-      "id": "voice-10-memory-learn",
+      "id": "voice-13-memory-learn",
       "name": "Memory: Learn Outcome",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
-      "position": [2060, 360]
+      "position": [2720, 360]
     },
     {
       "parameters": {
-        "content": "## Async memory writes (after the response)\n\nThese two nodes run **after** the voice provider has already received the reply, so they don't add latency to the call. They fan out from the same trigger.\n\nIf you don't care about per-call observations, delete `Memory: Observe Call` and keep only `Memory: Learn Outcome`.",
+        "content": "## Async memory writes (after the response)\n\nThese two nodes run **after** the voice provider has already received the reply, so they don't add latency to the call. They share the same `Normalize LLM Output` so they automatically use whichever provider answered.\n\nIf you don't care about per-call observations, delete `Memory: Observe Call` and keep only `Memory: Learn Outcome`.",
         "height": 220,
         "width": 380,
         "color": 7
@@ -231,7 +363,7 @@
       "name": "Sticky Note - Async Writes",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [2060, -40]
+      "position": [2720, -40]
     }
   ],
   "connections": {
@@ -312,14 +444,65 @@
       "main": [
         [
           {
-            "node": "Claude Reply",
+            "node": "Set Provider",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Claude Reply": {
+    "Set Provider": {
+      "main": [
+        [
+          {
+            "node": "Route by Provider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Provider": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Anthropic Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Reply": {
+      "main": [
+        [
+          {
+            "node": "Normalize LLM Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Reply": {
+      "main": [
+        [
+          {
+            "node": "Normalize LLM Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize LLM Output": {
       "main": [
         [
           {
@@ -347,6 +530,6 @@
   },
   "pinData": {},
   "meta": {
-    "templateId": "studiomeyer-voice-agent-memory-v1"
+    "templateId": "studiomeyer-voice-agent-memory-v2-multiprovider"
   }
 }
