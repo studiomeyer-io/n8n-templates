@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Personal Assistant with Long-Term Memory\n\n**Stack:** Telegram \u2192 intent classifier \u2192 either save-as-note OR memory-aware Q&A \u2192 reply.\n\n**Why this is different from a stateless ChatGPT bot:** Everything you tell it is permanently searchable. \"What did I say about the redesign on Monday?\" actually returns the right answer in March, even if Monday was three weeks ago.\n\n**Tool-use extensions (Calendar, Gmail, Notion)** are described in the README and can be added as additional Switch branches without changing the memory loop.",
+        "content": "## Personal Assistant with Long-Term Memory\n\n**Stack:** Telegram → intent classifier → either save-as-note OR memory-aware Q&A → reply.\n\n**Why this is different from a stateless ChatGPT bot:** Everything you tell it is permanently searchable. \"What did I say about the redesign on Monday?\" actually returns the right answer in March, even if Monday was three weeks ago.\n\n**Tool-use extensions (Calendar, Gmail, Notion)** are described in the README and can be added as additional Switch branches without changing the memory loop.",
         "height": 320,
         "width": 480,
         "color": 6
@@ -36,14 +36,14 @@
     },
     {
       "parameters": {
-        "jsCode": "// Two-step intent classifier:\n// 1. If the message starts with a slash command (/note, /ask, /summary), trust it.\n// 2. Otherwise default to 'ask', Claude can always reply, but Memory still gets searched first.\n//\n// You can later replace this with a Claude-Haiku classifier for fuzzier intents.\n\nconst body = $input.first().json;\nconst message = body?.message ?? body;\nconst text = (message?.text ?? '').trim();\nconst chatId = message?.chat?.id;\nconst userId = message?.from?.id;\nconst userLabel = message?.from?.username\n  ? `@${message.from.username}`\n  : message?.from?.first_name ?? `user-${userId}`;\n\nlet intent = 'ask';\nlet payload = text;\n\nconst slashMatch = text.match(/^\\/(note|ask|summary)\\s+([\\s\\S]*)$/i);\nif (slashMatch) {\n  intent = slashMatch[1].toLowerCase();\n  payload = slashMatch[2].trim();\n} else if (/^\\/(note|ask|summary)$/i.test(text)) {\n  // Slash command without payload\n  intent = text.slice(1).toLowerCase();\n  payload = '';\n}\n\nreturn [{\n  json: {\n    intent,\n    payload,\n    rawText: text,\n    chatId,\n    userId,\n    userLabel,\n    receivedAt: new Date().toISOString(),\n  },\n}];"
+        "jsCode": "// Two-step intent classifier:\n// 1. If the message starts with a slash command (/note, /ask, /summary), trust it.\n// 2. Otherwise default to 'ask', Claude can always reply, but Memory still gets searched first.\n//\n// You can later replace this with a Claude-Haiku classifier for fuzzier intents.\n\nconst body = $input.first().json;\nconst message = body?.message ?? body;\nconst text = (message?.text ?? message?.caption ?? '').trim();\nconst chatId = message?.chat?.id;\nconst userId = message?.from?.id;\n\n// User-label fallback chain: username > first_name > tg:userId > chat:chatId\n// We never produce 'user-undefined' which would collapse channel posts and\n// forwarded messages without sender into one shared identity.\nlet userLabel;\nif (message?.from?.username) {\n  userLabel = `@${message.from.username}`;\n} else if (message?.from?.first_name) {\n  userLabel = message.from.first_name;\n} else if (userId !== undefined && userId !== null) {\n  userLabel = `tg:${userId}`;\n} else if (chatId !== undefined && chatId !== null) {\n  userLabel = `chat:${chatId}`;\n} else {\n  throw new Error('Cannot identify user: message has no from.username, no from.first_name, no from.id, and no chat.id');\n}\n\nlet intent = 'ask';\nlet payload = text;\n\nconst slashMatch = text.match(/^\\/(note|ask|summary)\\s+([\\s\\S]*)$/i);\nif (slashMatch) {\n  intent = slashMatch[1].toLowerCase();\n  payload = slashMatch[2].trim();\n} else if (/^\\/(note|ask|summary)$/i.test(text)) {\n  // Slash command without payload\n  intent = text.slice(1).toLowerCase();\n  payload = '';\n}\n\nreturn [{\n  json: {\n    intent,\n    payload,\n    rawText: text,\n    chatId,\n    userId,\n    userLabel,\n    receivedAt: new Date().toISOString(),\n  },\n}];"
       },
       "id": "pa-2-intent",
       "name": "Detect Intent",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        460,
+        880,
         280
       ]
     },
@@ -135,7 +135,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        680,
+        1100,
         280
       ]
     },
@@ -154,7 +154,7 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        920,
+        1340,
         100
       ]
     },
@@ -169,7 +169,7 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        1140,
+        1560,
         100
       ]
     },
@@ -185,7 +185,7 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        920,
+        1340,
         280
       ]
     },
@@ -202,7 +202,7 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        1140,
+        1560,
         280
       ]
     },
@@ -220,7 +220,7 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        920,
+        1340,
         460
       ]
     },
@@ -233,7 +233,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1140,
+        1560,
         460
       ]
     },
@@ -259,7 +259,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1380,
+        1800,
         460
       ]
     },
@@ -327,7 +327,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        1600,
+        2020,
         460
       ]
     },
@@ -348,7 +348,7 @@
               "role": "system"
             },
             {
-              "content": "={{ $json.messageText ?? $json.transcript ?? $json.payload }}",
+              "content": "={{ $json.question }}",
               "role": "user"
             }
           ]
@@ -364,17 +364,20 @@
       "type": "n8n-nodes-base.openAi",
       "typeVersion": 1.7,
       "position": [
-        1820,
+        2240,
         340
-      ]
+      ],
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
+        "resource": "text",
+        "operation": "message",
         "modelId": {
           "__rl": true,
-          "value": "claude-sonnet-4-6",
+          "value": "claude-haiku-4-5",
           "mode": "list",
-          "cachedResultName": "claude-sonnet-4-6"
+          "cachedResultName": "claude-haiku-4-5"
         },
         "messages": {
           "values": [
@@ -395,12 +398,13 @@
       },
       "id": "mp-anthropic",
       "name": "Anthropic Reply",
-      "type": "n8n-nodes-base.anthropic",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
       "typeVersion": 1,
       "position": [
-        1820,
+        2240,
         580
-      ]
+      ],
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -411,7 +415,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2040,
+        2480,
         460
       ]
     },
@@ -428,7 +432,7 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        2280,
+        2720,
         460
       ]
     },
@@ -447,13 +451,13 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        2500,
-        560
+        2960,
+        380
       ]
     },
     {
       "parameters": {
-        "content": ">> SET ME <<\n\n**Default intent is `ask`** for any text without a slash command.\n\nUsers can also send:\n- `/note <anything>`, store as a learning, no LLM call\n- `/ask <question>`, explicit Q&A path\n- `/summary <topic>`, runs `Memory: Synthesize` for a topic cluster summary\n\nExamples:\n- `/note redesign meeting Monday: agreed on Plan B, push to next sprint`\n- `What did I decide about the redesign?` \u2192 searches memory + answers\n- `/summary redesign` \u2192 multi-week cluster summary",
+        "content": ">> SET ME <<\n\n**Default intent is `ask`** for any text without a slash command.\n\nUsers can also send:\n- `/note <anything>`, store as a learning, no LLM call\n- `/ask <question>`, explicit Q&A path\n- `/summary <topic>`, runs `Memory: Synthesize` for a topic cluster summary\n\nExamples:\n- `/note redesign meeting Monday: agreed on Plan B, push to next sprint`\n- `What did I decide about the redesign?` → searches memory + answers\n- `/summary redesign` → multi-week cluster summary",
         "height": 320,
         "width": 380,
         "color": 5
@@ -463,7 +467,7 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        460,
+        1100,
         -60
       ]
     },
@@ -479,7 +483,110 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1380,
+        1800,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Webhook integrity check (opt-in via WEBHOOK_INTEGRITY_CHECK_ENABLED=1).\n// Telegram Trigger handles HMAC via its secretToken option (set on the\n// trigger node itself). This Code node is the second defense layer:\n// reject malformed payloads that lack the fields downstream nodes expect.\n//\n// To enable: set the n8n env var WEBHOOK_INTEGRITY_CHECK_ENABLED to '1'.\n// To disable: leave the env var unset (default). The node passes through.\n\nconst enabled = $env.WEBHOOK_INTEGRITY_CHECK_ENABLED === '1';\nif (!enabled) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst message = item?.message ?? item;\n\nif (!message || typeof message !== 'object') {\n  throw new Error('Webhook integrity check failed: no message object');\n}\nif (typeof message.chat?.id !== 'number' && typeof message.chat?.id !== 'string') {\n  throw new Error('Webhook integrity check failed: missing message.chat.id');\n}\nif (typeof message.text !== 'string' && typeof message.caption !== 'string') {\n  throw new Error('Webhook integrity check failed: no text or caption');\n}\n\nreturn [{ json: item }];"
+      },
+      "id": "pa-pp-1-verify",
+      "name": "Verify Webhook (opt-in)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rate limit (opt-in via RATE_LIMIT_ENABLED=1).\n// Per-chat-id 60 requests in a 5-minute window. Tracked in workflow\n// static data (per-instance). For clustered n8n deployments or higher\n// throughput, use Nginx limit_req_zone or Cloudflare WAF instead.\n//\n// To enable: set the n8n env var RATE_LIMIT_ENABLED to '1'.\n// To disable: leave the env var unset (default). The node passes through.\n//\n// Concurrency note: $getWorkflowStaticData is not atomic. Under heavy\n// burst load the count can over-shoot the limit by a few percent. For\n// hard limits use a reverse proxy or Redis INCR + EXPIRE.\n\nconst enabled = $env.RATE_LIMIT_ENABLED === '1';\nif (!enabled) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst message = item?.message ?? item;\nconst chatId = message?.chat?.id ?? message?.from?.id ?? 'unknown';\nconst bucketKey = `chat:${chatId}`;\n\nconst data = $getWorkflowStaticData('global');\nconst buckets = data.rateBuckets ?? {};\nconst now = Date.now();\nconst WINDOW_MS = 5 * 60 * 1000;\nconst LIMIT = 60;\nconst MAX_BUCKETS = 5000;\n\nconst bucket = buckets[bucketKey] ?? { count: 0, windowStart: now };\nif (now - bucket.windowStart > WINDOW_MS) {\n  bucket.count = 0;\n  bucket.windowStart = now;\n}\nbucket.count++;\nbuckets[bucketKey] = bucket;\n\nif (Object.keys(buckets).length > MAX_BUCKETS) {\n  const cutoff = now - WINDOW_MS;\n  for (const k of Object.keys(buckets)) {\n    if (buckets[k].windowStart < cutoff) delete buckets[k];\n  }\n}\ndata.rateBuckets = buckets;\n\nif (bucket.count > LIMIT) {\n  throw new Error(`Rate limit exceeded for ${bucketKey}: ${bucket.count} requests in 5 min window`);\n}\n\nreturn [{ json: item }];"
+      },
+      "id": "pa-pp-2-ratelimit",
+      "name": "Rate Limit (opt-in)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Idempotency check (opt-in via IDEMPOTENCY_ENABLED=1).\n// Telegram retries on 5xx. Without dedup, the workflow fires twice and\n// writes Memory twice. This node holds a 5-minute in-memory window of\n// seen update_ids and short-circuits duplicates.\n//\n// To enable: set the n8n env var IDEMPOTENCY_ENABLED to '1'.\n// To disable: leave the env var unset (default). The node passes through.\n//\n// Concurrency note: $getWorkflowStaticData is not atomic and not cluster-\n// aware. For production scale, swap the staticData block for Redis SET NX\n// EX 300 (atomic, cluster-aware, auto-expires).\n\nconst enabled = $env.IDEMPOTENCY_ENABLED === '1';\nif (!enabled) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst message = item?.message ?? item;\nconst updateId = item?.update_id ?? message?.update_id;\nconst messageId = message?.message_id;\nconst idempotencyKey = updateId ? `tg-update:${updateId}` : (messageId ? `tg-msg:${messageId}` : null);\n\nif (!idempotencyKey) {\n  return [{ json: item }];\n}\n\nconst data = $getWorkflowStaticData('global');\nconst seen = data.seenKeys ?? {};\nconst now = Date.now();\nconst WINDOW_MS = 5 * 60 * 1000;\n\nfor (const k of Object.keys(seen)) {\n  if (now - seen[k] > WINDOW_MS) delete seen[k];\n}\n\nif (seen[idempotencyKey]) {\n  return [];\n}\nseen[idempotencyKey] = now;\ndata.seenKeys = seen;\n\nreturn [{ json: item }];"
+      },
+      "id": "pa-pp-3-idempotency",
+      "name": "Idempotency Check (opt-in)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// LLM Fallback Reply: fires when OpenAI Reply or Anthropic Reply errors,\n// or when Route by Provider receives an unknown provider value.\n// Builds a graceful customer-facing reply and an error-learn payload.\n//\n// The error pin from a node with onError=continueErrorOutput delivers\n// $json.error.message (and other error fields). $error.message does not\n// exist as a global in n8n, despite being often quoted online.\n//\n// Two arrival paths land here:\n//   1. LLM error (OpenAI or Anthropic returned non-2xx) ,  input has $json.error\n//   2. Router fallback (Route by Provider had no matching rule) ,  input has\n//      the original prompt object (systemPrompt, question, userLabel, etc.)\n//      WITHOUT an error field. We must NOT JSON.stringify the whole input\n//      because systemPrompt contains private user-memory context that would\n//      then end up in the Memory: Learn Error audit trail.\n\nconst errorRaw = $input.first().json;\nconst provider = $('Set Provider').item.json.provider ?? 'unknown';\n\n// Detect whether this is an error envelope or a router-fallback object\nconst isLlmError = !!(errorRaw?.error || errorRaw?.message);\nlet errorMessage;\nif (isLlmError) {\n  errorMessage = errorRaw?.error?.message\n    ?? errorRaw?.error?.name\n    ?? errorRaw?.message\n    ?? 'Unknown LLM error';\n} else {\n  // Router fallback: the input has no error field. Synthesize a clean\n  // diagnostic that does not leak systemPrompt or any private context.\n  errorMessage = `Unknown provider value: ${provider}. Set \"provider\" to \"openai\" or \"anthropic\" in the Set Provider node.`;\n}\n\nconst userLabel = $('Detect Intent').item.json.userLabel;\nconst question = $('Detect Intent').item.json.payload;\nconst chatId = $('Detect Intent').item.json.chatId;\n\nconst fallbackText = `Sorry, I had trouble looking that up just now. Try again in a minute, or send /note <your question> to record it for later.`;\n\nreturn [{\n  json: {\n    replyText: fallbackText,\n    provider,\n    isFallback: true,\n    isRouterFallback: !isLlmError,\n    errorMessage: String(errorMessage),\n    userLabel,\n    question,\n    chatId,\n  },\n}];"
+      },
+      "id": "pa-fallback-llm",
+      "name": "LLM Fallback Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2480,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "memory",
+        "operation": "learn",
+        "content": "=LLM error in personal-assistant ({{ $json.provider }}): {{ $json.errorMessage }} | User: {{ $json.userLabel }} | Question: \"{{ ($json.question ?? '').slice(0, 150) }}\"",
+        "category": "mistake",
+        "project": "personal-assistant",
+        "tags": "=llm-error, {{ $json.provider }}, personal-assistant",
+        "confidence": 0.6
+      },
+      "id": "pa-13-learn-error",
+      "name": "Memory: Learn Error",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [
+        2720,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Production patterns (opt-in)\n\nThree Code nodes below are off by default. Toggle each with an n8n env var:\n\n- `IDEMPOTENCY_ENABLED=1` deduplicates Telegram retries on the same `update_id` (5-min window).\n- `RATE_LIMIT_ENABLED=1` caps each chat at 60 requests / 5 min.\n- `WEBHOOK_INTEGRITY_CHECK_ENABLED=1` rejects malformed payloads (no `chat.id`, no `text`).\n\nEach node returns pass-through when its env var is unset, so the default import boots clean. Production deployments enable all three plus the Telegram Trigger `secretToken`.\n\nFor clustered n8n deployments, swap the in-memory `$getWorkflowStaticData` blocks for Redis (`SET NX EX 300` for idempotency, `INCR + EXPIRE` for rate limit). Single-instance n8n is fine with the default.",
+        "height": 360,
+        "width": 540,
+        "color": 7
+      },
+      "id": "note-production-patterns",
+      "name": "Sticky Note - Production Patterns",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        400,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Error branch (always on)\n\nBoth LLM Reply nodes have `On Error: Continue (Error Output)` enabled. The red error pin lands at **LLM Fallback Reply**, which builds a graceful user message and feeds two destinations:\n\n1. **Telegram: Q&A Reply** so the user gets an answer instead of silence.\n2. **Memory: Learn Error** with `category: mistake, tags: [llm-error, <provider>]` so you spot patterns in the knowledge graph.\n\nThe `Route by Provider` fallback output (typo or unknown provider value) also lands here, so a misconfigured `provider` field still produces a reply instead of silent dead-end.\n\nThe error syntax is `{{ $json.error.message }}`, not `$error.message` (which does not exist in n8n) and not `$json.execution.error.message` (which is for separate Error Trigger Workflows, not inline error pins).",
+        "height": 360,
+        "width": 460,
+        "color": 7
+      },
+      "id": "note-error-branch",
+      "name": "Sticky Note - Error Branch",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2480,
         -120
       ]
     }
@@ -489,7 +596,7 @@
       "main": [
         [
           {
-            "node": "Detect Intent",
+            "node": "Verify Webhook (opt-in)",
             "type": "main",
             "index": 0
           }
@@ -625,6 +732,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "LLM Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -633,6 +747,13 @@
         [
           {
             "node": "Normalize LLM Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LLM Fallback Reply",
             "type": "main",
             "index": 0
           }
@@ -647,11 +768,66 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "LLM Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Webhook (opt-in)": {
+      "main": [
+        [
+          {
+            "node": "Rate Limit (opt-in)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limit (opt-in)": {
+      "main": [
+        [
+          {
+            "node": "Idempotency Check (opt-in)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Idempotency Check (opt-in)": {
+      "main": [
+        [
+          {
+            "node": "Detect Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Fallback Reply": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Q&A Reply",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Memory: Learn Error",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     }
   },
-  "active": false,
   "settings": {
     "executionOrder": "v1"
   },

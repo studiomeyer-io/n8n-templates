@@ -180,7 +180,7 @@ The error branch fires on LLM failures (rate limit, 5xx). It writes one extra Me
 
 ## Production patterns
 
-Five patterns ship in `workflow.json` as actual nodes, not as snippets you have to copy from a wiki. Three are opt-in via env vars and pass through when unset (so the default import boots clean). The error branch and Memory de-dup are always on.
+Four patterns ship in `workflow.json` as actual nodes, three opt-in via env vars and one always-on error branch. A fifth pattern, Memory de-duplication, is server-side and needs no workflow node. The opt-in nodes pass through when their env var is unset, so the default import boots clean.
 
 **Idempotency** (opt-in, `IDEMPOTENCY_ENABLED=1`). The `Idempotency Check` Code node holds a 5-minute in-memory window of seen `update_id` values and short-circuits duplicates. Telegram retries on 5xx so this catches double-fires without touching Memory or the LLM. For clustered n8n deployments, swap the `$getWorkflowStaticData` block for Redis `SET NX EX 300`. The node has the swap pattern in its comments.
 

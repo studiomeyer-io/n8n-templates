@@ -62,6 +62,16 @@ jobs:
                 console.error('FAIL: workflow.json has non-empty pinData (strip test data before commit)');
                 process.exit(1);
               }
+              // Brand-Bibel forbidden top-level keys: n8n Public API rejects these
+              // on POST /api/v1/workflows so they must not appear in the committed
+              // template JSON. Strip them before commit.
+              const forbidden = ['meta', 'staticData', 'versionId', 'id', 'tags'];
+              const present = forbidden.filter(k => k in w);
+              if (present.length > 0) {
+                console.error('FAIL: workflow.json has forbidden top-level keys: ' + present.join(', '));
+                console.error('  n8n Public API rejects these on POST. Strip before commit.');
+                process.exit(1);
+              }
               console.log('OK: nodes=' + w.nodes.length + ', connections=' + Object.keys(w.connections || {}).length);
             " || fail=1
             echo "::endgroup::"
@@ -70,6 +80,36 @@ jobs:
             echo "Validation failed for at least one workflow.json"
             exit 1
           fi
+
+      - name: Credential-leak scan (workflow.json)
+        run: |
+          # Block workflow.json files that ship with real credentials baked in.
+          # Builders attach credentials in n8n after import via the credentials
+          # store. A workflow.json with `credentials: {<credType>: {id: "...", name: "..."}}`
+          # is fine (those are credential-store references, not secrets).
+          # What we block: literal API keys, OAuth tokens, basic-auth pairs.
+          set -e
+          fail=0
+          for wf in templates/*/workflow.json; do
+            case "$wf" in
+              templates/_TEMPLATE/*) continue ;;
+            esac
+            # Pattern 1: literal apiKey/accessToken/refreshToken values that look like real keys
+            #   (32+ char hex/base64, sk-/pk-/Bearer prefixes, JWT-shape, etc.)
+            # Pattern 2: hardcoded passwords/tokens not behind a credential-store reference
+            leak=$(grep -nEi '"(apiKey|accessToken|refreshToken|password|secret|token)"\s*:\s*"(sk-[A-Za-z0-9_-]{20,}|pk-[A-Za-z0-9_-]{20,}|Bearer\s+[A-Za-z0-9_.-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|[A-Fa-f0-9]{32,}|[A-Za-z0-9+/]{40,}={0,2})"' "$wf" 2>/dev/null || true)
+            if [ -n "$leak" ]; then
+              echo "::error file=$wf::FAIL: workflow.json appears to contain real credentials"
+              echo "$leak"
+              echo "  Strip before commit. Builders attach credentials in n8n after import."
+              fail=1
+            fi
+          done
+          if [ $fail -eq 1 ]; then
+            echo "Credential-leak scan failed for at least one workflow.json"
+            exit 1
+          fi
+          echo "OK: no credential leaks detected"
 
       - name: Em-dash guard (Brand Bibel)
         run: |
