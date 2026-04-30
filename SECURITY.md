@@ -28,7 +28,7 @@ Things we treat as security issues:
 - A template that is vulnerable to prompt injection in a way that lets an attacker influence subsequent LLM calls or memory writes for other tenants.
 - A template that hard-codes credentials, even in test fixtures.
 - A template that calls a paid third-party API without a rate-limit, cost-cap, or idempotency guard, allowing an attacker to spike a builder's bill.
-- The validate-workflows CI accepting workflow.json files that violate the brand-bibel security rules (real credentials, active=true at commit, etc).
+- The validate-workflows CI accepting workflow.json files that violate the repo security rules (real credentials, active=true at commit, etc).
 
 Things that are not security issues but are still bug reports (open a normal `[bug]` issue):
 

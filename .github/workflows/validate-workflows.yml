@@ -62,7 +62,7 @@ jobs:
                 console.error('FAIL: workflow.json has non-empty pinData (strip test data before commit)');
                 process.exit(1);
               }
-              // Brand-Bibel forbidden top-level keys: n8n Public API rejects these
+              // Forbidden top-level keys: n8n Public API rejects these
               // on POST /api/v1/workflows so they must not appear in the committed
               // template JSON. Strip them before commit.
               const forbidden = ['meta', 'staticData', 'versionId', 'id', 'tags'];
@@ -111,7 +111,7 @@ jobs:
           fi
           echo "OK: no credential leaks detected"
 
-      - name: Em-dash guard (Brand Bibel)
+      - name: Em-dash guard
         run: |
           # Em-dashes (—) are AI-content signature and forbidden in markdown + workflow.json.
           # We fail the build if any non-skeleton README or workflow.json contains them.
@@ -121,7 +121,7 @@ jobs:
             echo "FAIL: em-dash (—) found in:"
             echo "$found"
             echo ""
-            echo "Replace with comma, period, or parenthesis. See N8N-BRAND-BIBEL.md."
+            echo "Replace with comma, period, or parenthesis."
             exit 1
           fi
           echo "OK: no em-dashes in templates/"

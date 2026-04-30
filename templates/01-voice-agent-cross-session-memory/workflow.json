@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Voice Agent with Cross-Session Memory (Multi-Provider)\n\n**Stack:** Vapi/Retell webhook \u2192 StudioMeyer Memory \u2192 LLM (you choose: OpenAI, Anthropic, or any provider) \u2192 reply + persist outcome.\n\n**Multi-Provider Switch:** the `Set Provider` node decides which LLM responds. Default is `openai`. Change to `anthropic` (or add your own branch) without rebuilding the rest of the workflow.\n\n**Memory model:** Each unique caller phone becomes an `Entity` of type `caller`. Every call appends an observation. The next call retrieves the caller's history before the LLM speaks.",
+        "content": "## Voice Agent with Cross-Session Memory (Multi-Provider)\n\n**Stack:** Vapi/Retell webhook → StudioMeyer Memory → LLM (you choose: OpenAI, Anthropic, or any provider) → reply + persist outcome.\n\n**Multi-Provider Switch:** the `Set Provider` node decides which LLM responds. Default is `openai`. Change to `anthropic` (or add your own branch) without rebuilding the rest of the workflow.\n\n**Memory model:** Each unique caller phone becomes an `Entity` of type `caller`. Every call appends an observation. The next call retrieves the caller's history before the LLM speaks.",
         "height": 320,
         "width": 480,
         "color": 6
@@ -38,7 +38,9 @@
         "httpMethod": "POST",
         "path": "vapi-callback",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {
+          "rawBody": true
+        }
       },
       "id": "voice-1-webhook",
       "name": "Vapi/Retell Webhook",
@@ -59,7 +61,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        460,
+        880,
         280
       ]
     },
@@ -76,8 +78,8 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        680,
-        280
+        1240,
+        200
       ]
     },
     {
@@ -109,8 +111,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        900,
-        280
+        1440,
+        200
       ]
     },
     {
@@ -127,8 +129,8 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        1140,
-        160
+        1660,
+        100
       ]
     },
     {
@@ -145,20 +147,20 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        1140,
-        420
+        1660,
+        320
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Build a plain-text context block the LLM can read.\n// Both branches converge here; pick whichever has data.\n\nconst transcript = $('Normalize Payload').item.json.transcript || '(no transcript)';\nconst callerPhone = $('Normalize Payload').item.json.callerPhone || 'unknown';\n\n// Pull recent memory results if the caller was known\nlet contextLines = [];\ntry {\n  const memSearch = $('Memory: Recent Context').first()?.json;\n  const results = memSearch?.results ?? memSearch?.data?.results ?? [];\n  contextLines = results.slice(0, 5).map((r, i) => {\n    const text = r.content ?? r.text ?? r.formatted ?? JSON.stringify(r).slice(0, 200);\n    return `${i + 1}. ${text}`;\n  });\n} catch (e) {\n  // First-time caller path, no prior memory to summarize\n  contextLines = ['(this is a new caller, no prior interactions on file)'];\n}\n\nconst contextBlock = contextLines.length\n  ? contextLines.join('\\n')\n  : '(no relevant prior context)';\n\nreturn [{\n  json: {\n    callerPhone,\n    transcript,\n    contextBlock,\n    systemPrompt: `You are a friendly voice agent for a small business.\\n\\nCaller phone: ${callerPhone}\\n\\nWhat we know about this caller from prior calls:\\n${contextBlock}\\n\\nReply concisely (under 60 words) and reference past context when relevant.`,\n  },\n}];"
+        "jsCode": "// Build a plain-text context block the LLM can read.\n// Both phone-known and anonymous (no phone) paths converge here.\n\nconst transcript = $('Normalize Payload').item.json.transcript || '(no transcript)';\nconst callerPhone = $('Normalize Payload').item.json.callerPhone || 'anonymous';\nconst hasPhone = $('Normalize Payload').item.json.hasPhone === true;\n\n// Pull recent memory results if the caller was known (phone path only)\nlet contextLines = [];\nif (hasPhone) {\n  try {\n    const memSearch = $('Memory: Recent Context').first()?.json;\n    const results = memSearch?.results ?? memSearch?.data?.results ?? [];\n    contextLines = results.slice(0, 5).map((r, i) => {\n      const text = r.content ?? r.text ?? r.formatted ?? JSON.stringify(r).slice(0, 200);\n      return `${i + 1}. ${text}`;\n    });\n  } catch (e) {\n    // First-time caller path, no prior memory to summarize\n    contextLines = ['(this is a new caller, no prior interactions on file)'];\n  }\n} else {\n  // Anonymous caller path: no memory lookup ran, no prior context to surface\n  contextLines = ['(caller is anonymous, no memory lookup performed)'];\n}\n\nconst contextBlock = contextLines.length\n  ? contextLines.join('\\n')\n  : '(no relevant prior context)';\n\nconst systemPrompt = hasPhone\n  ? `You are a friendly voice agent for a small business.\\n\\nCaller phone: ${callerPhone}\\n\\nWhat we know about this caller from prior calls:\\n${contextBlock}\\n\\nReply concisely (under 60 words) and reference past context when relevant.`\n  : `You are a friendly voice agent for a small business.\\n\\nThe caller is anonymous (no phone number was provided by the voice provider). Treat this as a first-time caller. If the conversation needs continuity, ask the caller to share an email or callback number so you can recognize them next time.\\n\\nReply concisely (under 60 words).`;\n\nreturn [{\n  json: {\n    callerPhone,\n    transcript,\n    contextBlock,\n    hasPhone,\n    systemPrompt,\n  },\n}];"
       },
       "id": "voice-6-build-prompt",
       "name": "Build LLM Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1380,
+        1900,
         280
       ]
     },
@@ -174,7 +176,7 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1600,
+        2120,
         -100
       ]
     },
@@ -200,7 +202,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1600,
+        2120,
         280
       ]
     },
@@ -268,7 +270,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        1820,
+        2340,
         280
       ]
     },
@@ -305,12 +307,15 @@
       "type": "n8n-nodes-base.openAi",
       "typeVersion": 1.7,
       "position": [
-        2040,
+        2560,
         160
-      ]
+      ],
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
+        "resource": "text",
+        "operation": "message",
         "modelId": {
           "__rl": true,
           "value": "claude-haiku-4-5",
@@ -336,12 +341,13 @@
       },
       "id": "voice-9b-anthropic",
       "name": "Anthropic Reply",
-      "type": "n8n-nodes-base.anthropic",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
       "typeVersion": 1,
       "position": [
-        2040,
+        2560,
         400
-      ]
+      ],
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -352,7 +358,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2280,
+        2780,
         280
       ]
     },
@@ -367,7 +373,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        2500,
+        3000,
         280
       ]
     },
@@ -383,8 +389,8 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        2720,
-        200
+        3220,
+        180
       ]
     },
     {
@@ -402,8 +408,8 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        2720,
-        360
+        3220,
+        340
       ]
     },
     {
@@ -418,8 +424,195 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        2720,
+        3220,
         -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Webhook HMAC verification (opt-in via VAPI_SIGNING_SECRET or RETELL_SIGNING_SECRET).\n// Vapi sends 'x-vapi-signature' header with HMAC-SHA256 of raw body, hex-encoded.\n// Retell sends 'x-retell-signature' (same shape).\n//\n// The Webhook node has rawBody: true so the byte-stream is preserved on\n// $json.rawBody as a string. We MUST compute HMAC against the raw bytes\n// the provider signed, NOT against a re-stringified JSON object (which\n// has different byte-order and whitespace).\n//\n// To enable: set VAPI_SIGNING_SECRET (or RETELL_SIGNING_SECRET) env var on\n// the n8n host AND configure the same secret in your voice provider dashboard.\n// To disable: leave both env vars unset (default). The node passes through.\n//\n// Length-guard before timingSafeEqual is mandatory. Without it, an attacker\n// can trigger a RangeError with a 1-char signature and crash the workflow.\n\nconst vapiSecret = $env.VAPI_SIGNING_SECRET;\nconst retellSecret = $env.RETELL_SIGNING_SECRET;\n\nif (!vapiSecret && !retellSecret) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst headers = item?.headers ?? {};\n\n// n8n Webhook v2 with rawBody: true populates $json.rawBody as a string.\n// Fallback chain: rawBody field > body if it is already a string > stringify.\n// The stringify fallback only runs if the Webhook node was misconfigured\n// (rawBody: false), in which case HMAC will fail loud and the user will\n// fix the config.\nconst rawBody = item?.rawBody\n  ?? (typeof item?.body === 'string' ? item.body : JSON.stringify(item?.body ?? {}));\n\nconst crypto = require('crypto');\n\nfunction verifyHmac(secret, headerName) {\n  const sig = headers[headerName];\n  if (!sig || typeof sig !== 'string') return false;\n  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');\n  const sigBuf = Buffer.from(sig, 'hex');\n  const expBuf = Buffer.from(expected, 'hex');\n  if (sigBuf.length !== expBuf.length) return false;\n  return crypto.timingSafeEqual(sigBuf, expBuf);\n}\n\nlet verified = false;\nif (vapiSecret && verifyHmac(vapiSecret, 'x-vapi-signature')) verified = true;\nif (!verified && retellSecret && verifyHmac(retellSecret, 'x-retell-signature')) verified = true;\n\nif (!verified) {\n  throw new Error('Webhook HMAC verification failed: signature missing or mismatch (check rawBody is enabled on the Webhook node)');\n}\n\nreturn [{ json: $input.first().json }];"
+      },
+      "id": "voice-pp-1-verify",
+      "name": "Verify Webhook (opt-in)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rate limit (opt-in via RATE_LIMIT_ENABLED=1).\n// Per-caller-phone (or per-IP if anonymous) 60 requests in a 5-min window.\n// For voice this matters less than for chat (callers don't burst-call), but\n// a leaked webhook URL can spike LLM cost so we keep this layer for parity.\n//\n// To enable: set the n8n env var RATE_LIMIT_ENABLED to '1'.\n// To disable: leave the env var unset (default). The node passes through.\n//\n// Concurrency note: $getWorkflowStaticData is not atomic. For real production\n// loads use Nginx limit_req_zone or Cloudflare WAF in front of n8n.\n\nconst enabled = $env.RATE_LIMIT_ENABLED === '1';\nif (!enabled) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst body = item?.body ?? item;\nconst callerPhone = body?.message?.call?.customer?.number ?? body?.call?.from_number;\nconst ip = item?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ?? item?.headers?.['x-real-ip'] ?? 'unknown';\nconst bucketKey = callerPhone ? `phone:${callerPhone}` : `ip:${ip}`;\n\nconst data = $getWorkflowStaticData('global');\nconst buckets = data.rateBuckets ?? {};\nconst now = Date.now();\nconst WINDOW_MS = 5 * 60 * 1000;\nconst LIMIT = 60;\nconst MAX_BUCKETS = 5000;\n\nconst bucket = buckets[bucketKey] ?? { count: 0, windowStart: now };\nif (now - bucket.windowStart > WINDOW_MS) {\n  bucket.count = 0;\n  bucket.windowStart = now;\n}\nbucket.count++;\nbuckets[bucketKey] = bucket;\n\nif (Object.keys(buckets).length > MAX_BUCKETS) {\n  const cutoff = now - WINDOW_MS;\n  for (const k of Object.keys(buckets)) {\n    if (buckets[k].windowStart < cutoff) delete buckets[k];\n  }\n}\ndata.rateBuckets = buckets;\n\nif (bucket.count > LIMIT) {\n  throw new Error(`Rate limit exceeded for ${bucketKey}: ${bucket.count} requests in 5 min window`);\n}\n\nreturn [{ json: item }];"
+      },
+      "id": "voice-pp-2-ratelimit",
+      "name": "Rate Limit (opt-in)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Idempotency check (opt-in via IDEMPOTENCY_ENABLED=1).\n// Vapi/Retell can re-deliver end-of-call-report on transient 5xx. Without\n// dedup the workflow fires twice per call and writes duplicate observations.\n// Idempotency key is the callId (Vapi message.call.id / Retell call.call_id).\n//\n// To enable: set the n8n env var IDEMPOTENCY_ENABLED to '1'.\n// To disable: leave the env var unset (default). The node passes through.\n//\n// Concurrency note: $getWorkflowStaticData is not atomic and not cluster-\n// aware. For production scale, swap the staticData block for Redis SET NX\n// EX 300 (atomic, cluster-aware, auto-expires).\n\nconst enabled = $env.IDEMPOTENCY_ENABLED === '1';\nif (!enabled) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst body = item?.body ?? item;\nconst callId = body?.message?.call?.id ?? body?.call?.call_id;\nconst idempotencyKey = callId ? `voice:${callId}` : null;\n\nif (!idempotencyKey) {\n  // No callId available, pass through (better than dropping)\n  return [{ json: item }];\n}\n\nconst data = $getWorkflowStaticData('global');\nconst seen = data.seenKeys ?? {};\nconst now = Date.now();\nconst WINDOW_MS = 5 * 60 * 1000;\n\nfor (const k of Object.keys(seen)) {\n  if (now - seen[k] > WINDOW_MS) delete seen[k];\n}\n\nif (seen[idempotencyKey]) {\n  return [];\n}\nseen[idempotencyKey] = now;\ndata.seenKeys = seen;\n\nreturn [{ json: item }];"
+      },
+      "id": "voice-pp-3-idempotency",
+      "name": "Idempotency Check (opt-in)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-has-phone",
+              "leftValue": "={{ $json.hasPhone }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "voice-2b-has-phone",
+      "name": "Has Phone?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// LLM Fallback Reply: fires when OpenAI/Anthropic Reply errors,\n// or when Route by Provider receives an unknown provider value.\n// Builds a graceful voice-friendly reply and an error-learn payload.\n//\n// Two arrival paths land here:\n//   1. LLM error (provider returned non-2xx) ,  input has $json.error\n//   2. Router fallback (Route by Provider had no matching rule) ,  input has\n//      the original prompt object (systemPrompt, transcript, callerPhone, etc.)\n//      WITHOUT an error field. We must NOT JSON.stringify the whole input\n//      because systemPrompt contains private memory context.\n\nconst errorRaw = $input.first().json;\nconst provider = $('Set Provider').item.json.provider ?? 'unknown';\n\nconst isLlmError = !!(errorRaw?.error || errorRaw?.message);\nlet errorMessage;\nif (isLlmError) {\n  errorMessage = errorRaw?.error?.message\n    ?? errorRaw?.error?.name\n    ?? errorRaw?.message\n    ?? 'Unknown LLM error';\n} else {\n  errorMessage = `Unknown provider value: ${provider}. Set \"provider\" to \"openai\" or \"anthropic\" in the Set Provider node.`;\n}\n\nconst callerPhone = $('Normalize Payload').item.json.callerPhone ?? 'anonymous';\nconst hasPhone = $('Normalize Payload').item.json.hasPhone === true;\nconst callId = $('Normalize Payload').item.json.callId ?? '';\n\n// Voice fallback should be SHORT. The voice provider TTS reads it aloud.\nconst fallbackText = \"Sorry, I'm having trouble right now. Please try calling back in a minute.\";\n\nreturn [{\n  json: {\n    replyText: fallbackText,\n    provider,\n    isFallback: true,\n    isRouterFallback: !isLlmError,\n    errorMessage: String(errorMessage),\n    callerPhone,\n    hasPhone,\n    callId,\n  },\n}];"
+      },
+      "id": "voice-llm-fallback",
+      "name": "LLM Fallback Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2780,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-has-phone-post",
+              "leftValue": "={{ $('Normalize Payload').item.json.hasPhone }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "voice-10b-has-phone-post",
+      "name": "Has Phone? (post)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3000,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "memory",
+        "operation": "learn",
+        "content": "=LLM error in voice-agent ({{ $json.provider }}): {{ $json.errorMessage }} | Caller: {{ $json.callerPhone }} | Call: {{ $json.callId }}",
+        "category": "mistake",
+        "project": "voice-agent",
+        "tags": "=llm-error, {{ $json.provider }}, voice-agent",
+        "confidence": 0.6
+      },
+      "id": "voice-14-learn-error",
+      "name": "Memory: Learn Error",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [
+        3220,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Production patterns (opt-in)\n\nThree Code nodes below are off by default. Toggle each with an n8n env var:\n\n- `IDEMPOTENCY_ENABLED=1` deduplicates Vapi/Retell retries on the same `callId` (5-min window).\n- `RATE_LIMIT_ENABLED=1` caps each caller (or IP if anonymous) at 60 calls / 5 min.\n- `VAPI_SIGNING_SECRET=<secret>` (or `RETELL_SIGNING_SECRET`) enables HMAC verification of the webhook signature against the raw body. Configure the same secret in your voice provider dashboard.\n\nEach node returns pass-through when its env var is unset, so the default import boots clean. Production deployments enable all three.\n\nFor clustered n8n deployments, swap the in-memory `$getWorkflowStaticData` blocks for Redis (`SET NX EX 300` for idempotency, `INCR + EXPIRE` for rate limit). Single-instance n8n is fine with the default.",
+        "height": 380,
+        "width": 540,
+        "color": 7
+      },
+      "id": "note-production-patterns",
+      "name": "Sticky Note - Production Patterns",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        400,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Has Phone? branch (always on)\n\nSome Vapi setups send `caller=anonymous` or strip the phone number entirely. Without this branch, an anonymous call would query Memory with `null` and create polluted entities.\n\nThe IF branches on `hasPhone`:\n- **true** (phone present): full memory path runs, caller is looked up or created.\n- **false** (anonymous): memory path is skipped, the LLM still answers with an \"anonymous caller\" system prompt.\n\nThe matching `Has Phone? (post)` IF after the LLM gates Memory: Observe + Memory: Learn so anonymous calls don't write polluted memory either. Memory: Learn Error from the LLM fallback path fires regardless (LLM errors are valuable even for anonymous callers).",
+        "height": 280,
+        "width": 460,
+        "color": 7
+      },
+      "id": "note-has-phone",
+      "name": "Sticky Note - Has Phone",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Error branch (always on)\n\nBoth LLM Reply nodes have `On Error: Continue (Error Output)` enabled. The red error pin lands at **LLM Fallback Reply**, which builds a SHORT voice-friendly fallback message (\"Sorry, I'm having trouble, please call back in a minute\") and feeds two destinations:\n\n1. **Respond to Voice Provider** so the caller hears a graceful sentence instead of silence.\n2. **Memory: Learn Error** with `category: mistake, tags: [llm-error, <provider>]` so you spot patterns.\n\nThe `Route by Provider` fallback output (typo or unknown provider value) also lands here. The fallback handler discriminates between LLM-error and router-fallback so private memory context never leaks into the audit trail.\n\nThe error syntax is `{{ $json.error.message }}`, not `$error.message` (does not exist) and not `$json.execution.error.message` (that's for separate Error Trigger Workflows).",
+        "height": 360,
+        "width": 460,
+        "color": 7
+      },
+      "id": "note-error-branch",
+      "name": "Sticky Note - Error Branch",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2780,
+        -120
       ]
     }
   ],
@@ -428,7 +621,7 @@
       "main": [
         [
           {
-            "node": "Normalize Payload",
+            "node": "Verify Webhook (opt-in)",
             "type": "main",
             "index": 0
           }
@@ -439,7 +632,7 @@
       "main": [
         [
           {
-            "node": "Memory: Lookup Caller",
+            "node": "Has Phone?",
             "type": "main",
             "index": 0
           }
@@ -534,6 +727,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "LLM Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -545,6 +745,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "LLM Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -553,6 +760,13 @@
         [
           {
             "node": "Normalize LLM Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LLM Fallback Reply",
             "type": "main",
             "index": 0
           }
@@ -568,6 +782,68 @@
             "index": 0
           },
           {
+            "node": "Has Phone? (post)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Webhook (opt-in)": {
+      "main": [
+        [
+          {
+            "node": "Rate Limit (opt-in)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limit (opt-in)": {
+      "main": [
+        [
+          {
+            "node": "Idempotency Check (opt-in)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Idempotency Check (opt-in)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Phone?": {
+      "main": [
+        [
+          {
+            "node": "Memory: Lookup Caller",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build LLM Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Phone? (post)": {
+      "main": [
+        [
+          {
             "node": "Memory: Observe Call",
             "type": "main",
             "index": 0
@@ -577,11 +853,27 @@
             "type": "main",
             "index": 0
           }
+        ],
+        []
+      ]
+    },
+    "LLM Fallback Reply": {
+      "main": [
+        [
+          {
+            "node": "Respond to Voice Provider",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Memory: Learn Error",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     }
   },
-  "active": false,
   "settings": {
     "executionOrder": "v1"
   },

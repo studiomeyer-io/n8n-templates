@@ -9,7 +9,7 @@
 **Drop-in n8n workflows that turn AI agents from amnesia patients into systems that remember.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![n8n compatible](https://img.shields.io/badge/n8n-1.50%2B-FF6E5C.svg)](https://n8n.io)
+[![n8n compatible](https://img.shields.io/badge/n8n-2.10.1%2B-FF6E5C.svg)](https://n8n.io)
 [![Custom Node](https://img.shields.io/npm/v/n8n-nodes-studiomeyer-memory?label=community%20node&color=blue)](https://www.npmjs.com/package/n8n-nodes-studiomeyer-memory)
 [![Templates](https://img.shields.io/badge/templates-3%20live-brightgreen.svg)](#templates)
 [![Memory backend](https://img.shields.io/badge/memory-studiomeyer.io-d4af37.svg)](https://memory.studiomeyer.io)
@@ -17,7 +17,7 @@
 
 Voice agents · customer support · personal assistants · cross-session memory · multi-provider LLM
 
-[Quick Start](#quick-start) · [Templates](#templates) · [Architecture](#architecture) · [Brand Bibel](./N8N-BRAND-BIBEL.md) · [Ecosystem](./ECOSYSTEM.md) · [Contributing](./CONTRIBUTING.md)
+[Quick Start](#quick-start) · [Templates](#templates) · [Architecture](#architecture) · [Ecosystem](./ECOSYSTEM.md) · [Contributing](./CONTRIBUTING.md)
 
 </div>
 
@@ -69,8 +69,6 @@ Detailed walkthrough per template lives inside each `templates/NN-slug/README.md
 
 - **Meeting Bot with Context Continuity**, Otter / Fathom transcripts, multi-meeting synthesis.
 - **Mem0 / Zep migration tool**, bulk-import existing memory backends into StudioMeyer Memory.
-
-See [`N8N-BRAND-BIBEL.md`](./N8N-BRAND-BIBEL.md) for the full quality bar every template hits before merge.
 
 ## Architecture
 
@@ -130,14 +128,14 @@ Most n8n templates on the marketplace are demos. They show the happy path and st
 | **Multi-provider LLM switch** | Provider lock-in is bad for the builder. They want to A/B OpenAI vs Anthropic, swap if costs spike, fall back if one is down. | `Set Provider` + `Route by Provider` nodes let the builder pick OpenAI (default `gpt-5-mini`) or Anthropic (`claude-haiku-4-5`). Both branches converge in a `Normalize LLM Output` Code node that flattens the provider-specific response shape. |
 | **Memory de-duplication** | Same observation written twice creates noise in the knowledge graph. | StudioMeyer Memory's gatekeeper deduplicates on >95% content similarity automatically. Our templates rely on it. The `action: SKIPPED, similarity: 1` response on retries is the verification signal. |
 
-**Documented as drop-in code-node snippets in the [N8N-BRAND-BIBEL.md](./N8N-BRAND-BIBEL.md), not yet wired into the default workflow.json (opt-in for production):**
+**Three of these patterns ship as opt-in nodes in Templates 02 and 03, all four ship as opt-in nodes in Template 01 (gated by env vars, default-off so the import boots clean). Toggle via env var to enable for production:**
 
 | Pattern | Why it matters | What you do |
 |---|---|---|
-| **Idempotency** | Trigger providers retry on 5xx. Without dedup, every retry creates a duplicate memory entry and a duplicate LLM bill. | Add a Code node at the top of `Normalize Payload` with `$getWorkflowStaticData` 5-minute dedup window keyed on the provider's call/update id. Snippet in the Brand Bibel. Swap to Redis SET NX for clustered deployments. |
+| **Idempotency** | Trigger providers retry on 5xx. Without dedup, every retry creates a duplicate memory entry and a duplicate LLM bill. | Add a Code node at the top of `Normalize Payload` with `$getWorkflowStaticData` 5-minute dedup window keyed on the provider's call/update id. Swap to Redis SET NX for clustered deployments. |
 | **Error branches** | LLM 429 / 500 / timeouts happen. Without an error branch, the workflow silently fails and the user gets nothing. | Set "On Error: Continue (using error output)" on each LLM Reply node, route the red error pin to a Code node that produces a graceful fallback reply and writes a `category: mistake` learning to Memory. Inline error pin uses `{{ $json.error.message }}`. The other documented syntax `{{ $json.execution.error.message }}` is only for a separate Error Trigger Workflow. The often-quoted `{{ $error.message }}` does not exist in n8n. |
-| **HMAC webhook verification** | Public webhooks without signature verification can be hit by anyone. At LLM scale this is a $1000 bill in 5 minutes. | Add a Code node right after the Webhook trigger that verifies the provider signature (Vapi `x-vapi-signature`, Retell `x-retell-signature`, Telegram secret-token) with `crypto.timingSafeEqual` and rejects unsigned requests. Snippet in the Brand Bibel. |
-| **Rate limiting** | Same reason as HMAC. Even with HMAC, a stolen key needs throttling. | Per-IP token bucket Code node, 60 requests / 5 min default. Tracked in `$getWorkflowStaticData('global').rateBuckets`. Snippet in the Brand Bibel. Swap to Redis `INCR + EXPIRE` for clusters. |
+| **HMAC webhook verification** | Public webhooks without signature verification can be hit by anyone. At LLM scale this is a $1000 bill in 5 minutes. | Add a Code node right after the Webhook trigger that verifies the provider signature (Vapi `x-vapi-signature`, Retell `x-retell-signature`, Telegram secret-token) with `crypto.timingSafeEqual` and rejects unsigned requests. |
+| **Rate limiting** | Same reason as HMAC. Even with HMAC, a stolen key needs throttling. | Per-IP token bucket Code node, 60 requests / 5 min default. Tracked in `$getWorkflowStaticData('global').rateBuckets`. Swap to Redis `INCR + EXPIRE` for clusters. |
 
 The first table is what you get out of the box. The second table is what you wire in when you move from dev to production. Both are documented end-to-end so neither has to be re-invented per template.
 
@@ -179,7 +177,7 @@ The middle four rows are the gap. We close them with snippet-level documentation
 
 **Are these production-ready?** Honest answer: production-pattern hardened in v0.4.0-prep, not a one-click production deploy yet. Templates 02 and 03 ship the four opt-in production patterns (idempotency, error branches, webhook security, rate limit) as actual nodes in `workflow.json`, gated by env vars and pass-through by default. Memory de-dup is server-side. Template 01 (Voice Agent) is on the same hardening path but ships in the next pass and is treated as developer-preview until then. CI blocks workflow.json files with em-dashes, missing references, the n8n-API-rejected `meta`/`staticData`/`versionId`/`id`/`tags` keys, and obvious credential leaks (literal API keys, Bearer tokens, JWTs). All three Tier-1 templates promote to "production-ready" in the same release cycle.
 
-**How do I contribute?** Open a [template request issue](https://github.com/studiomeyer-io/n8n-templates/issues/new?template=template_request.md) so we can confirm scope. Then copy `templates/_TEMPLATE/`, fill it in, smoke-test in your own n8n, open a PR. The [CONTRIBUTING.md](./CONTRIBUTING.md) and [N8N-BRAND-BIBEL.md](./N8N-BRAND-BIBEL.md) cover the full bar.
+**How do I contribute?** Open a [template request issue](https://github.com/studiomeyer-io/n8n-templates/issues/new?template=template_request.md) so we can confirm scope. Then copy `templates/_TEMPLATE/`, fill it in, smoke-test in your own n8n, open a PR. The [CONTRIBUTING.md](./CONTRIBUTING.md) covers the full bar.
 
 **Why is the workflow.json so verbose?** Sticky notes. The yellow notes mark every SET-ME spot for the importing builder. n8n's own template-marketplace creator-hub flags missing sticky notes as the #1 rejection reason for new submissions. We over-comment on purpose.
 
@@ -209,7 +207,6 @@ The reason we hold submissions back is the production-patterns gap above. Templa
 ```
 n8n-templates/
 ├── README.md                       # this file
-├── N8N-BRAND-BIBEL.md               # internal style guide for tone, structure, branding
 ├── ECOSYSTEM.md                    # the rest of the StudioMeyer toolkit
 ├── CHANGELOG.md
 ├── CODE_OF_CONDUCT.md
@@ -244,9 +241,9 @@ Each template folder is self-contained. Copy any one of them out of this repo an
 
 The per-template README explains data flow, memory keys, and extension recipes.
 
-## Brand Bibel + Quality Gate
+## Quality Gate
 
-Every template in this repo is held against the rules in [`N8N-BRAND-BIBEL.md`](./N8N-BRAND-BIBEL.md):
+Every template in this repo is held against an internal quality standard:
 
 - 12 mandatory README sections (intro, data flow, architecture diagram, memory model table, setup, multi-provider, extending, cost, gotchas, related templates, footer)
 - Multi-provider LLM switch when an LLM call is involved
@@ -256,7 +253,7 @@ Every template in this repo is held against the rules in [`N8N-BRAND-BIBEL.md`](
 - A Flux-generated cover image (`cover.png`)
 - A 3-agent code review (analyst + critic + research) on substantial changes
 
-CI enforces the structural pieces. The brand bibel covers the editorial pieces.
+CI enforces the structural pieces (workflow.json validity, no em-dashes, no forbidden top-level keys, no credential leaks). The editorial pieces (tone, sticky-note clarity, naming) are reviewed by maintainers per PR.
 
 ## Versioning
 
@@ -268,11 +265,11 @@ Tags are pushed for every MINOR and MAJOR release. See [CHANGELOG.md](./CHANGELO
 
 We welcome new templates that solve a real workflow problem. The process:
 
-1. Read [`N8N-BRAND-BIBEL.md`](./N8N-BRAND-BIBEL.md) for the bar.
+1. Read [CONTRIBUTING.md](./CONTRIBUTING.md) for the bar.
 2. Open a [template request issue](https://github.com/studiomeyer-io/n8n-templates/issues/new?template=template_request.md) so we can confirm scope before you build.
 3. Copy `templates/_TEMPLATE/` to a new folder, fill it in, smoke-test in your own n8n instance, open a PR.
 
-The PR template includes the brand-bibel checklist. Reviewers verify structure first, content second.
+The PR template includes the per-template checklist. Reviewers verify structure first, content second.
 
 ## Related projects
 
@@ -288,4 +285,4 @@ MIT, see [LICENSE](./LICENSE). Use these templates anywhere, including commercia
 
 ---
 
-*Built by [StudioMeyer](https://studiomeyer.io) in Mallorca. Memory at [memory.studiomeyer.io](https://memory.studiomeyer.io). Issues + ideas at [github.com/studiomeyer-io/n8n-templates/issues](https://github.com/studiomeyer-io/n8n-templates/issues). The reason a search query like "n8n voice agent memory" surfaces this repo is the work in [N8N-BRAND-BIBEL.md](./N8N-BRAND-BIBEL.md), not luck.*
+*Built by [StudioMeyer](https://studiomeyer.io) in Mallorca. Memory at [memory.studiomeyer.io](https://memory.studiomeyer.io). Issues + ideas at [github.com/studiomeyer-io/n8n-templates/issues](https://github.com/studiomeyer-io/n8n-templates/issues). The reason a search query like "n8n voice agent memory" surfaces this repo is craft on every template, not luck.*

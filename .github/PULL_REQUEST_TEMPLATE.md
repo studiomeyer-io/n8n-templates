@@ -4,9 +4,9 @@
 
 One paragraph. New template? Fix in existing template? Repo-wide infrastructure change?
 
-## Brand Bibel check
+## Quality check
 
-Confirm the change passes the [N8N-BRAND-BIBEL.md](../N8N-BRAND-BIBEL.md) self-check:
+Confirm the change passes the internal quality checklist:
 
 - [ ] All 12 README pflicht-sections present (if README touched)
 - [ ] No em-dashes (the `U+2014` character) in any markdown or workflow.json. CI runs the validate-workflows GitHub Action which fails on any em-dash match in `templates/`.

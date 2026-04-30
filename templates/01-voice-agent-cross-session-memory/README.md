@@ -14,58 +14,63 @@ A voice provider (Vapi, Retell, Bland, or any custom telephony bridge that posts
 
 The result is a voice agent that knows your customer the second time they call. No vector-database setup, no Postgres extension, no manual schema work, just one credential and three minutes to import.
 
-## Multi-Provider Switch
-
-The workflow has a `Set Provider` node followed by a `Route by Provider` switch. Default value is `openai`. Change to `anthropic` (or add your own branch with a third LLM) without rebuilding the rest of the flow. Both branches converge in `Normalize LLM Output` which extracts the reply text from either provider's response shape and feeds it to the response + memory writes.
-
-To add a third provider (e.g. Gemini, Mistral, local Ollama):
-
-1. Open the `Route by Provider` Switch node, add a third rule matching e.g. `provider == "gemini"`.
-2. Drag in the corresponding LLM node (or HTTP Request for self-hosted), connect it to the new switch output.
-3. Connect the new LLM node back to `Normalize LLM Output`.
-4. The Code node already handles common shapes; if the new provider returns something exotic, add one more `else if` branch.
-
-Memory writes stay identical regardless of provider, they pull `replyText` from the normalized output, not from the provider-specific node.
-
 ## Architecture
 
 ```
-[Vapi/Retell Webhook]
+[Vapi/Retell Webhook]             ← Raw Body enabled for HMAC verification
+        │
+        ▼
+[Verify Webhook (opt-in)]         ← VAPI_SIGNING_SECRET / RETELL_SIGNING_SECRET
+        │
+        ▼
+[Rate Limit (opt-in)]             ← RATE_LIMIT_ENABLED=1
+        │
+        ▼
+[Idempotency Check (opt-in)]      ← IDEMPOTENCY_ENABLED=1, dedup on callId
         │
         ▼
 [Normalize Payload]               ← parses E.164 phone, transcript, call ID
         │
         ▼
-[Memory: Lookup Caller]           ← entity.search, entityType=caller
-        │
-        ▼
-   ┌──┤ Known Caller? ├──┐
-   │                     │
-   ▼ yes                no ▼
-[Memory: Recent Context]   [Memory: Create Caller]
-   │                     │
-   └────────┬────────────┘
-            ▼
-[Build LLM Prompt]                ← injects past context into system prompt
-            │
-            ▼
-[Set Provider]                    ← provider = "openai" (default) | "anthropic"
-            │
-            ▼
-[Route by Provider]
-            │
-   ┌────────┴────────┐
-   ▼ openai          ▼ anthropic
-[OpenAI Reply]     [Anthropic Reply]
+   ┌──┤ Has Phone? ├──┐
    │                  │
-   └────────┬─────────┘
+   ▼ true            false ▼
+[Memory: Lookup Caller]   (skip memory, treat as anonymous)
+        │                       │
+   ┌──┤ Known Caller? ├──┐      │
+   ▼ yes               no ▼     │
+[Memory: Recent Context] [Memory: Create Caller]
+   │                     │      │
+   └────────┬────────────┴──────┘
             ▼
-[Normalize LLM Output]            ← extracts replyText from either shape
+[Build LLM Prompt]                ← anonymous-aware: switches system prompt
             │
-   ┌────────┼─────────────┐
-   ▼        ▼             ▼
-[Respond]  [Memory: Observe]  [Memory: Learn]   ← async, no latency impact
+            ▼
+[Set Provider] → [Route by Provider]
+            ┌────────┴─────────┬─────────┐
+            ▼                  ▼         ▼ fallback (typo)
+   [OpenAI Reply]      [Anthropic Reply]      │
+   gpt-5-mini default  claude-haiku-4-5       │
+   onError: continue   onError: continue      │
+   │       │           │       │              │
+ success error       success error            │
+   │       │           │       │              │
+   ▼       └───────────┘       └──────────────┤
+[Normalize LLM Output]                  [LLM Fallback Reply]
+   │                                          │
+   ▼                                          ▼
+[Respond to Voice Provider] ◄─────────────────┤
+   plus async writes:                         │
+   ├─ Has Phone? (post) ─true→ Memory: Observe + Memory: Learn Outcome
+   └─ (anonymous calls skip memory writes)    │
+                                              │
+                                       Memory: Learn Error
+                                       (category: mistake)
 ```
+
+The error branch is always wired. The `Has Phone?` IF is also always wired so anonymous calls never pollute Memory with `null:caller` entities or queries. The opt-in guards (Verify Webhook, Rate Limit, Idempotency) pass through when their env vars are unset, so the default import boots clean.
+
+The two memory-write nodes (`Memory: Observe` + `Memory: Learn Outcome`) run **after** `Respond to Voice Provider` has already returned the reply, so they don't add latency to the call. n8n's `executionOrder: v1` walks the graph breadth-first from `Normalize LLM Output`, hitting `Respond to Voice Provider` first because it's wired ahead of `Has Phone? (post)` in the connections array. This is execution-order-dependent, not a hard async guarantee. For a stricter "respond first, persist later" contract use a separate Execute-Workflow trigger or a queue (Redis, BullMQ).
 
 ## Memory model
 
@@ -101,6 +106,26 @@ This three-layer model means you can later run `entity.open` to get a full calle
 
 7. **Test.** Call your voice number. End the call. The first call creates the caller entity. The second call retrieves it and the system prompt now contains the prior interaction summary. Verify in [memory.studiomeyer.io](https://memory.studiomeyer.io) → *Knowledge Graph* → search for the caller's phone number.
 
+## Multi-provider switch
+
+The workflow has a `Set Provider` node followed by a `Route by Provider` switch. Default value is `openai`. Change to `anthropic` (or add your own branch with a third LLM) without rebuilding the rest of the flow. Both branches converge in `Normalize LLM Output` which extracts the reply text from either provider's response shape and feeds it to the response + memory writes.
+
+**Switch from OpenAI to Anthropic:**
+
+1. Open the `Set Provider` node.
+2. Change the `provider` field from `openai` to `anthropic`.
+3. Save and re-test. The workflow now routes through `Anthropic Reply` and Claude answers the call.
+
+**Add a third provider (Gemini, Mistral, local Ollama):**
+
+1. Add a new Reply node using the appropriate credential type.
+2. Add a new rule in `Route by Provider` that matches `provider == "gemini"` and routes to it.
+3. On the new Reply node, set `On Error: Continue (Error Output)`. Connect main output 0 to `Normalize LLM Output` and main output 1 to `LLM Fallback Reply`.
+4. Update `Normalize LLM Output` to handle the new provider's response shape (the existing code already handles OpenAI `choices[0].message.content` and Anthropic `content[0].text`, just append a third branch).
+5. Set `provider` to `gemini` in `Set Provider` to test.
+
+The error branch and Memory writes stay identical, you only add nodes, never edit the convergence point.
+
 ## Extending
 
 **Add caller scoring.** After `Memory: Lookup Caller`, branch on observation count. Callers with 5+ prior interactions get a different greeting ("Welcome back, this is your sixth call!"). Use `entity.open` to fetch the full observation list.
@@ -113,17 +138,52 @@ This three-layer model means you can later run `entity.open` to get a full calle
 
 ## Cost notes
 
-Per call (assuming ~30s of conversation, average payload):
+Per call (assuming ~30s of conversation, ~500 input + 200 output tokens):
 
-| Component | Approx cost |
-|---|---|
-| 2× Memory operations (search + learn) | < $0.001 (well within free tier) |
-| 1× Claude Haiku 4.5 call (~500 tokens) | ~$0.0005 |
-| 1× entity.observe (async) | < $0.001 |
-| **Total per call** | **~$0.002** |
+| Component | Cost (Stand 2026-04) | Per-call cost |
+|---|---|---|
+| **StudioMeyer Memory** | EUR 0 / 29 / 49 per month | Free tier: 10k ops/mo (~2500 calls). Pro tier: unlimited. |
+| **OpenAI gpt-5-mini** (default) | $0.25 / 1M input + $2.00 / 1M output | ~$0.0005 per call |
+| **Anthropic claude-haiku-4-5** | $1 / 1M input + $5 / 1M output | ~$0.0015 per call |
+| Vapi or Retell | provider varies | ~$0.07-0.15 per minute |
 
-At 1 000 calls/month, expect ~$2/month in LLM + memory cost. The free Memory tier covers ~10 000 ops/month; upgrading to the EUR 29/mo Pro tier unlocks unlimited ops + the 3D knowledge-graph view.
+**Worked example at 1000 calls/month, 30s avg duration:**
 
+| Stack | Memory | LLM | Voice provider | Total /mo |
+|---|---|---|---|---|
+| OpenAI gpt-5-mini | EUR 0 (free tier) | ~$0.50 | ~$35-75 | **~$35-76/mo** |
+| Anthropic claude-haiku-4-5 | EUR 0 | ~$1.50 | ~$35-75 | **~$36-77/mo** |
+
+Voice provider cost dominates at this scale. LLM + Memory together stay below $2/mo. At 5000+ calls/month you cross the Memory free tier and need Pro at EUR 29/mo. Pro also unlocks the 3D caller-relationship graph at memory.studiomeyer.io/portal/memory/knowledge.
+
+The error branch fires on LLM failures (rate limit, 5xx). It writes one extra Memory op (Learn Error) per failure. At a healthy 99.5% success rate this adds <0.5% to your bill.
+
+
+## Common gotchas
+
+- **No phone in payload.** Some Vapi setups send `caller=anonymous` or strip the number. The new `Has Phone?` IF branches on `hasPhone` and routes anonymous calls directly to the LLM with an "anonymous caller" system prompt, skipping Memory entirely on both the lookup and write paths. This avoids polluting Memory with `null:caller` entities. If you want recognition for anonymous callers, use the Vapi `call.id` as a synthetic identifier in `Normalize Payload`.
+- **Transcript is empty for short calls.** Vapi sends `end-of-call-report` even for 2-second calls where nothing was said. The LLM still replies with an empty user message. Either add a guard in `Normalize Payload` to skip when transcript is empty, or accept the noise as a graceful default reply.
+- **Multiple calls in flight.** n8n's default execution mode is fire-and-forget per webhook trigger. If the same caller calls twice in 30 seconds, both runs may see "0 entities" on the first lookup (race condition). Memory's gatekeeper deduplicates on the entity-create side, so you don't get duplicate `caller` entities, but the second call's "first call" observation is technically wrong. For high-volume use, enable Idempotency Check via `IDEMPOTENCY_ENABLED=1` (catches retries on the same `callId`) and consider the `entity.observe` with auto-create fallback (Memory v3.17 feature, in private beta).
+- **Anthropic node type-string.** The Anthropic Reply node uses `@n8n/n8n-nodes-langchain.anthropic` (the LangChain-vendored direct-API node), not `n8n-nodes-base.anthropic` (which does not exist in n8n core and produces "Unrecognized node type" on activation). The OpenAI counterpart is the core `n8n-nodes-base.openAi` (verified working in n8n 2.15.0). If you fork this template and a Reply branch fails to activate, double-check the type-string against your n8n version.
+- **Memory writes are execution-order-dependent, not strictly async.** The two memory-write nodes (`Memory: Observe` + `Memory: Learn Outcome`) live downstream of `Has Phone? (post)`, which itself is wired in parallel to `Respond to Voice Provider` after `Normalize LLM Output`. n8n's `executionOrder: v1` walks breadth-first and hits `Respond` first because it's listed first in the connections array. The voice provider gets the reply in time, then the memory writes happen. This is execution-order-dependent. For a stricter "respond first, persist always-after" contract, route the writes through a separate Execute-Workflow trigger or a queue (Redis, BullMQ).
+
+## Production patterns
+
+Four patterns ship in `workflow.json` as actual nodes, three opt-in via env vars and one always-on error branch. A fifth pattern, Memory de-duplication, is server-side and needs no workflow node. The opt-in nodes pass through when their env var is unset, so the default import boots clean.
+
+**Idempotency** (opt-in, `IDEMPOTENCY_ENABLED=1`). The `Idempotency Check` Code node holds a 5-minute in-memory window of seen `callId` values (Vapi `message.call.id` or Retell `call.call_id`) and short-circuits duplicates. Voice providers can re-deliver `end-of-call-report` on transient 5xx so this catches double-fires without touching Memory or the LLM. For clustered n8n deployments, swap the `$getWorkflowStaticData` block for Redis `SET NX EX 300`. The node has the swap pattern in its comments.
+
+**Rate limiting** (opt-in, `RATE_LIMIT_ENABLED=1`). The `Rate Limit` Code node caps each caller-phone (or IP if anonymous) at 60 calls in a 5-minute sliding window. For voice this matters less than for chat (callers don't burst-call) but a leaked webhook URL can still spike your LLM bill. The map is bounded at 5 000 entries with eviction. For real production loads, put rate limiting on a reverse proxy (Nginx `limit_req_zone`, Cloudflare WAF, Traefik) and keep this node as defense-in-depth.
+
+**Webhook HMAC verification** (opt-in, `VAPI_SIGNING_SECRET` or `RETELL_SIGNING_SECRET`). The `Verify Webhook` Code node computes HMAC-SHA256 of the raw body using the configured secret and compares against `x-vapi-signature` or `x-retell-signature` with `crypto.timingSafeEqual`. The Webhook node has `rawBody: true` enabled so the byte-stream is preserved. Length-guard before the timing-safe compare prevents `RangeError` DoS from a 1-char signature. Without HMAC, an attacker who guesses your webhook URL can spike your bill.
+
+**Error branches** (always on). Both LLM Reply nodes have `On Error: Continue (Error Output)` enabled. The error pin lands at `LLM Fallback Reply`, which builds a SHORT voice-friendly message ("Sorry, I'm having trouble, please call back in a minute") and feeds two destinations: `Respond to Voice Provider` (so the caller hears something instead of silence) and `Memory: Learn Error` with `category: mistake, tags: [llm-error, <provider>]`. The `Route by Provider` fallback output (typo or unknown provider value) also lands at `LLM Fallback Reply`. The fallback handler discriminates between LLM-error and router-fallback so private memory context never leaks into the audit trail. The error syntax is `{{ $json.error.message }}`, not `{{ $error.message }}` (does not exist) and not `{{ $json.execution.error.message }}` (Error Trigger Workflow only, not inline pins).
+
+**Memory de-duplication** (always on, server-side). StudioMeyer Memory's gatekeeper deduplicates writes on >95% content similarity automatically. If your workflow somehow fires twice on the same observation despite idempotency (clock skew, manual re-run), the second write is silently skipped. You can verify by checking `action: SKIPPED, similarity: 1` in the Memory response. This is server-side, no env var needed.
+
+## Hard compatibility floor
+
+**Minimum n8n version: 2.10.1** (CVE-2026-27493 fix). Older versions of n8n have an unauthenticated RCE vulnerability in Form nodes. This template does not use Form nodes itself, but you should still upgrade for general security. Older 1.x users: upgrade to 1.123.22 LTS or later. The pre-activation check on n8n 2.15.0 was used to validate every node type-string in this template.
 
 ## Tech stack matrix
 
@@ -132,8 +192,8 @@ At 1 000 calls/month, expect ~$2/month in LLM + memory cost. The free Memory tie
 | n8n | >= 2.10.1 (CVE-2026-27493 floor) | self-hosted free / Cloud $20/mo | n8n Cloud trial | always |
 | n8n-nodes-studiomeyer-memory | >= 0.1.0 | free | n/a | always |
 | StudioMeyer Memory | API key | EUR 0 / 29 / 49 | 10k ops/month | always |
-| OpenAI (default) | gpt-5-mini | $0.15 / 1M input tokens | $5 trial credit | provider = openai |
-| Anthropic | claude-haiku-4-5 | $1 / 1M input tokens | $5 trial credit | provider = anthropic |
+| OpenAI (default) | gpt-5-mini | $0.25 / 1M input + $2.00 / 1M output | $5 trial credit | provider = openai |
+| Anthropic | claude-haiku-4-5 | $1 / 1M input + $5 / 1M output | $5 trial credit | provider = anthropic |
 | Vapi or Retell | latest stable | varies | trial available | always |
 
 Free trial credit covers ~30 minutes of calls.
@@ -144,28 +204,32 @@ Before activation, create these credentials in n8n:
 
 - [ ] **StudioMeyer Memory API** (`studioMeyerMemoryApi`). Get key at [memory.studiomeyer.io/dashboard/keys](https://memory.studiomeyer.io/dashboard/keys). Test: any memory.search call returns `success: true`.
 - [ ] **OpenAI API** (`openAiApi`) OR **Anthropic API** (`anthropicApi`). Get key at [platform.openai.com](https://platform.openai.com) / [console.anthropic.com](https://console.anthropic.com). Test: model list endpoint returns models.
-- [ ] **Vapi / Retell webhook** (provider-specific). Setup webhook URL in the provider dashboard pointing at your n8n instance.
-- [ ] **Webhook signing secret (recommended)**. For HMAC verification. Set as n8n env var `VAPI_SIGNING_SECRET`. Without it, the webhook is public-callable by anyone who knows the URL.
+- [ ] **Vapi / Retell webhook** (provider-specific). After activation, copy the Webhook node's Production URL into your voice provider dashboard.
+- [ ] **Webhook signing secret (recommended).** Set the n8n env var `VAPI_SIGNING_SECRET` (or `RETELL_SIGNING_SECRET`) to a strong random string and configure the same secret in your voice provider dashboard. The Verify Webhook Code node then validates the HMAC-SHA256 signature against the raw body on every call. Without HMAC, an attacker who guesses your webhook URL can spike your bill.
 
-## Production patterns
+## Live verification
 
-These five patterns are documented as copy-paste-ready code snippets in the [N8N-BRAND-BIBEL.md](../../N8N-BRAND-BIBEL.md). The current `workflow.json` ships the **happy path** so a builder can import and run it in 5 minutes. The production patterns below are **opt-in additions** you wire in when you move from "test in dev" to "deploy to prod". Drop-in nodes, no architectural rebuild required. They are the difference between a template you import to learn and a template you import to ship.
+Template 01 was structurally validated against n8n 2.15.0 in [n8n.studiomeyer.io](https://n8n.studiomeyer.io) during the v0.4.0-prep pass. Pre-activation check passed for all 29 nodes including the `@n8n/n8n-nodes-langchain.anthropic` type-string for the Anthropic Reply node and the `n8n-nodes-base.openAi` type-string for OpenAI. The Memory pattern (entity.search + create + observe + memory.learn) was smoke-tested in Template 02 against the same backend at memory.studiomeyer.io with executions 445 + 446 both green. End-to-end voice test (Vapi or Retell webhook → LLM reply → Memory write) requires a voice-provider account and is part of the next pass when the trigger account is provisioned.
 
-**Idempotency.** Vapi/Retell Webhook retries on 5xx. The first Code node after the trigger extracts an idempotency key (callId (Vapi `message.call.id` / Retell `call.call_id`)) and checks an in-memory dedup window of 5 minutes. Duplicate triggers return early without firing memory writes or LLM calls. For clustered deployments, swap the `$getWorkflowStaticData` block for Redis `SET NX EX 300`.
+## How this compares
 
-**Error branches.** The LLM Reply nodes (OpenAI Reply, Anthropic Reply) have "On Error: Continue (Error Output)" enabled. The error pin connects to a fallback Code node that builds a graceful reply ("Sorry, our system is briefly unavailable. We will get back to you within an hour.") and writes a `category: mistake, tags: [llm-error, <provider>]` learning to Memory. You see every LLM failure in the knowledge graph and can spot patterns. Use  in the node directly downstream of the red error pin. The other documented syntax  is for a separate Error Trigger Workflow (set in Workflow Settings → Error Workflow), not for inline error handling. The often-quoted  does not exist in n8n expressions.
+Memory layers a 2026 builder considers for an n8n voice agent:
 
-**Webhook HMAC verification.** Vapi `x-vapi-signature` or Retell `x-retell-signature`. The first Code node verifies the signature with `crypto.timingSafeEqual` and rejects unsigned or wrongly-signed requests. Off by default; enable by setting the n8n env var `VAPI_SIGNING_SECRET` to your provider's signing secret. Without HMAC, an attacker who guesses your webhook URL can spike your bill.
+| Feature | StudioMeyer Memory | Mem0 | Zep | Memori |
+|---|---|---|---|---|
+| Verified n8n custom node | Yes (this repo, npm provenance) | Community HTTP node | Community node | Third-party node |
+| Reference templates ship | 8 templates in this repo | Reddit posts only (Mem0+Vapi+n8n got 6 upvotes) | Some | None curated |
+| Free tier | 10k ops/mo | 10K memories + 1K retrieval calls/mo | 1k credits/mo cloud + Graphiti OSS self-host | OSS self-host only |
+| Bi-temporal `asOf` queries | Yes | Limited | Yes (via Graphiti) | No |
+| Knowledge graph (entities + relations) | Native | Hybrid vector + graph | Native (Graphiti) | Vector only |
+| E.164-normalized caller key | Yes (`Entity` of `entityType: caller`) | Manual | Manual | Manual |
+| Multi-tenant isolated by default | Yes | Manual config | Manual config | Self-host |
+| EU hosting | Yes (Frankfurt, Hetzner) | US-default | US-default | Self-host |
+| OAuth 2.1 + API key | Both | API key | API key | API key |
 
-**Rate limiting.** Per-IP 60-requests-per-5-minute window. Tracked in `$getWorkflowStaticData('global').rateBuckets`. Adjust the `LIMIT` and `WINDOW_MS` constants in the rate-limit Code node. For higher-throughput production: swap to Redis `INCR` + `EXPIRE`.
+The Mem0+Vapi+n8n Reddit post with 6 upvotes is the existing benchmark for this niche. This template is the StudioMeyer answer with a verified custom node, an entity-typed caller pattern, an EU-hosted memory backend, and four opt-in production patterns ready to toggle. Voice agents are listed in Mem0's State of AI Agent Memory 2026 as "the fastest growing integration category", which is why this template ships first in the StudioMeyer reference set.
 
-**Memory de-duplication.** StudioMeyer Memory's gatekeeper deduplicates writes on >95% content similarity automatically. If your workflow somehow fires twice on the same observation despite idempotency (e.g. clock skew, manual re-run), the second write is silently skipped. You can verify by checking `action: SKIPPED, similarity: 1` in the Memory response.
-
-## Common gotchas
-
-- **No phone in payload.** Some Vapi setups send `caller=anonymous` or strip the number. The Code node handles this gracefully (`hasPhone: false`) but the IF branch will treat it as a new caller every time. Add a fallback to use the Vapi `call.id` as a synthetic identifier if you need recognition for anonymous callers.
-- **Transcript is empty for short calls.** Vapi sends `end-of-call-report` even for 2-second calls where nothing was said. The IF branch still fires, the LLM still replies (with an empty user message). Either add a guard in `Normalize Payload` to skip when transcript is empty, or accept the noise.
-- **Multiple calls in flight.** n8n's default execution mode is fire-and-forget per webhook trigger. If the same caller calls twice in 30 seconds, both runs will see "0 entities" on the first lookup (race condition). Memory's gatekeeper deduplicates on the entity-create side, so you don't get duplicate `caller` entities, but the second call's "first call" observation is technically wrong. For high-volume use, switch the entity-create branch to `entity.observe` with a fallback that auto-creates the entity if missing (this is a Memory v3.17 feature, currently in private beta).
+All four projects are open about their tradeoffs. The fastest comparison: wire each one to a throwaway voice number for a day and see which response shape feels right.
 
 ## Related templates
 
