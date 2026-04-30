@@ -124,6 +124,43 @@ Per call (assuming ~30s of conversation, average payload):
 
 At 1 000 calls/month, expect ~$2/month in LLM + memory cost. The free Memory tier covers ~10 000 ops/month; upgrading to the EUR 29/mo Pro tier unlocks unlimited ops + the 3D knowledge-graph view.
 
+
+## Tech stack matrix
+
+| Component | Version | Cost | Free tier | Required when |
+|---|---|---|---|---|
+| n8n | >= 2.10.1 (CVE-2026-27493 floor) | self-hosted free / Cloud $20/mo | n8n Cloud trial | always |
+| n8n-nodes-studiomeyer-memory | >= 0.1.0 | free | n/a | always |
+| StudioMeyer Memory | API key | EUR 0 / 29 / 49 | 10k ops/month | always |
+| OpenAI (default) | gpt-5-mini | $0.15 / 1M input tokens | $5 trial credit | provider = openai |
+| Anthropic | claude-haiku-4-5 | $1 / 1M input tokens | $5 trial credit | provider = anthropic |
+| Vapi or Retell | latest stable | varies | trial available | always |
+
+Free trial credit covers ~30 minutes of calls.
+
+## Credentials checklist
+
+Before activation, create these credentials in n8n:
+
+- [ ] **StudioMeyer Memory API** (`studioMeyerMemoryApi`). Get key at [memory.studiomeyer.io/dashboard/keys](https://memory.studiomeyer.io/dashboard/keys). Test: any memory.search call returns `success: true`.
+- [ ] **OpenAI API** (`openAiApi`) OR **Anthropic API** (`anthropicApi`). Get key at [platform.openai.com](https://platform.openai.com) / [console.anthropic.com](https://console.anthropic.com). Test: model list endpoint returns models.
+- [ ] **Vapi / Retell webhook** (provider-specific). Setup webhook URL in the provider dashboard pointing at your n8n instance.
+- [ ] **Webhook signing secret (recommended)**. For HMAC verification. Set as n8n env var `VAPI_SIGNING_SECRET`. Without it, the webhook is public-callable by anyone who knows the URL.
+
+## Production patterns
+
+These five patterns ship in the workflow.json. They are why this template is "ship it" and not "demo it".
+
+**Idempotency.** Vapi/Retell Webhook retries on 5xx. The first Code node after the trigger extracts an idempotency key (callId (Vapi `message.call.id` / Retell `call.call_id`)) and checks an in-memory dedup window of 5 minutes. Duplicate triggers return early without firing memory writes or LLM calls. For clustered deployments, swap the `$getWorkflowStaticData` block for Redis `SET NX EX 300`.
+
+**Error branches.** The LLM Reply nodes (OpenAI Reply, Anthropic Reply) have "On Error: Continue (Error Output)" enabled. The error pin connects to a fallback Code node that builds a graceful reply ("Sorry, our system is briefly unavailable. We will get back to you within an hour.") and writes a `category: mistake, tags: [llm-error, <provider>]` learning to Memory. You see every LLM failure in the knowledge graph and can spot patterns. Use `{{ $error.message }}` for error fields, NOT `{{ $json.execution.error.message }}` (that one is deprecated and returns undefined).
+
+**Webhook HMAC verification.** Vapi `x-vapi-signature` or Retell `x-retell-signature`. The first Code node verifies the signature with `crypto.timingSafeEqual` and rejects unsigned or wrongly-signed requests. Off by default; enable by setting the n8n env var `VAPI_SIGNING_SECRET` to your provider's signing secret. Without HMAC, an attacker who guesses your webhook URL can spike your bill.
+
+**Rate limiting.** Per-IP 60-requests-per-5-minute window. Tracked in `$getWorkflowStaticData('global').rateBuckets`. Adjust the `LIMIT` and `WINDOW_MS` constants in the rate-limit Code node. For higher-throughput production: swap to Redis `INCR` + `EXPIRE`.
+
+**Memory de-duplication.** StudioMeyer Memory's gatekeeper deduplicates writes on >95% content similarity automatically. If your workflow somehow fires twice on the same observation despite idempotency (e.g. clock skew, manual re-run), the second write is silently skipped. You can verify by checking `action: SKIPPED, similarity: 1` in the Memory response.
+
 ## Common gotchas
 
 - **No phone in payload.** Some Vapi setups send `caller=anonymous` or strip the number. The Code node handles this gracefully (`hasPhone: false`) but the IF branch will treat it as a new caller every time. Add a fallback to use the Vapi `call.id` as a synthetic identifier if you need recognition for anonymous callers.

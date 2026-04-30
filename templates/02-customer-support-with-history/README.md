@@ -115,6 +115,43 @@ Per ticket (1 customer, ~200-word reply):
 
 At 5 000 tickets/month → ~$35/month all-in. The free Memory tier covers ~10 000 ops/month; the EUR 29/mo Pro tier removes that cap and unlocks the 3D customer-relationship graph.
 
+
+## Tech stack matrix
+
+| Component | Version | Cost | Free tier | Required when |
+|---|---|---|---|---|
+| n8n | >= 2.10.1 (CVE-2026-27493 floor) | self-hosted free / Cloud $20/mo | n8n Cloud trial | always |
+| n8n-nodes-studiomeyer-memory | >= 0.1.0 | free | n/a | always |
+| StudioMeyer Memory | API key | EUR 0 / 29 / 49 | 10k ops/month | always |
+| OpenAI (default) | gpt-5-mini | $0.15 / 1M input tokens | $5 trial credit | provider = openai |
+| Anthropic | claude-haiku-4-5 | $1 / 1M input tokens | $5 trial credit | provider = anthropic |
+| Telegram (BotFather token) or WhatsApp Cloud API | latest stable | varies | trial available | always |
+
+Telegram bots are free. Cloud API requires a verified Meta business account for WhatsApp.
+
+## Credentials checklist
+
+Before activation, create these credentials in n8n:
+
+- [ ] **StudioMeyer Memory API** (`studioMeyerMemoryApi`). Get key at [memory.studiomeyer.io/dashboard/keys](https://memory.studiomeyer.io/dashboard/keys). Test: any memory.search call returns `success: true`.
+- [ ] **OpenAI API** (`openAiApi`) OR **Anthropic API** (`anthropicApi`). Get key at [platform.openai.com](https://platform.openai.com) / [console.anthropic.com](https://console.anthropic.com). Test: model list endpoint returns models.
+- [ ] **Telegram** (Bot token from @BotFather). Setup webhook URL in the provider dashboard pointing at your n8n instance.
+- [ ] **Webhook signing secret (recommended)**. For HMAC verification. Set as n8n env var `TELEGRAM_WEBHOOK_SECRET`. Without it, the webhook is public-callable by anyone who knows the URL.
+
+## Production patterns
+
+These five patterns ship in the workflow.json. They are why this template is "ship it" and not "demo it".
+
+**Idempotency.** Telegram Trigger (or WhatsApp / Slack / Intercom) retries on 5xx. The first Code node after the trigger extracts an idempotency key (Telegram `update_id` or `message.message_id`) and checks an in-memory dedup window of 5 minutes. Duplicate triggers return early without firing memory writes or LLM calls. For clustered deployments, swap the `$getWorkflowStaticData` block for Redis `SET NX EX 300`.
+
+**Error branches.** The LLM Reply nodes (OpenAI Reply, Anthropic Reply) have "On Error: Continue (Error Output)" enabled. The error pin connects to a fallback Code node that builds a graceful reply ("Sorry, our system is briefly unavailable. We will get back to you within an hour.") and writes a `category: mistake, tags: [llm-error, <provider>]` learning to Memory. You see every LLM failure in the knowledge graph and can spot patterns. Use `{{ $error.message }}` for error fields, NOT `{{ $json.execution.error.message }}` (that one is deprecated and returns undefined).
+
+**Webhook HMAC verification.** Telegram `x-telegram-bot-api-secret-token` (set when registering webhook). The first Code node verifies the signature with `crypto.timingSafeEqual` and rejects unsigned or wrongly-signed requests. Off by default; enable by setting the n8n env var `TELEGRAM_WEBHOOK_SECRET` to your provider's signing secret. Without HMAC, an attacker who guesses your webhook URL can spike your bill.
+
+**Rate limiting.** Per-IP 60-requests-per-5-minute window. Tracked in `$getWorkflowStaticData('global').rateBuckets`. Adjust the `LIMIT` and `WINDOW_MS` constants in the rate-limit Code node. For higher-throughput production: swap to Redis `INCR` + `EXPIRE`.
+
+**Memory de-duplication.** StudioMeyer Memory's gatekeeper deduplicates writes on >95% content similarity automatically. If your workflow somehow fires twice on the same observation despite idempotency (e.g. clock skew, manual re-run), the second write is silently skipped. You can verify by checking `action: SKIPPED, similarity: 1` in the Memory response.
+
 ## Common gotchas
 
 - **No email in message.** Customers rarely identify themselves up-front. The Telegram-ID fallback works, but it produces one entity per Telegram account, not one per real human (a customer who has two accounts looks like two people). Mitigation: when an email IS provided in a later message, run a separate workflow that uses `entity.relate` to merge the `tg:<id>` entity into the email entity.

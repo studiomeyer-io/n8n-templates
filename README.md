@@ -113,11 +113,26 @@ The LLM branches converge into a single Code node that extracts `replyText` from
 
 Every template needs:
 
-1. **n8n instance** at version 1.50 or higher (Cloud, self-hosted, or Docker).
+1. **n8n instance at version 2.10.1 or higher** (Cloud, self-hosted, or Docker). 2.10.1 is the floor because of CVE-2026-27493 (unauthenticated RCE in Form nodes, fixed Feb 2026). 1.x users: upgrade to 1.123.22 or later. None of these templates use Form nodes themselves, but you should not run a vulnerable n8n in any case.
 2. **The community node** installed: `npm install n8n-nodes-studiomeyer-memory` for self-hosted, or via *Settings → Community Nodes* on n8n Cloud.
 3. **A free API key** from [memory.studiomeyer.io/dashboard/keys](https://memory.studiomeyer.io/dashboard/keys). Add as credential `StudioMeyer Memory API`.
 4. **An LLM credential** in n8n. OpenAI (default for these templates) or Anthropic. Free tiers from both providers cover the Tier 1 workloads.
 5. **Provider-specific credentials** if your trigger needs them: Telegram bot token, Vapi / Retell webhook URL, etc. Documented per template.
+
+## What makes these templates different
+
+Most n8n templates on the marketplace are demos. They show the happy path and stop. We test ours against real production patterns that other public templates miss:
+
+| Pattern | Why it matters | Where in our templates |
+|---|---|---|
+| **Idempotency** | Trigger providers retry on 5xx. Without dedup, every retry creates a duplicate memory entry and a duplicate LLM bill. | `Normalize Payload` Code node uses `$getWorkflowStaticData` for an in-memory dedup window. Swap to Redis SET NX for clustered deployments. |
+| **Error branches** | LLM 429 / 500 / timeouts happen. Without an error branch, the workflow silently fails and the user gets nothing. | LLM Reply nodes have "On Error: Continue (Error Output)" set. Error path falls back to a graceful reply and logs the failure to Memory. |
+| **HMAC webhook verification** | Public webhooks without signature verification can be hit by anyone. At LLM scale this is a $1000 bill in 5 minutes. | First Code node after the webhook verifies provider HMAC (Vapi `x-vapi-signature`, Retell `x-retell-signature`, Telegram secret-token). Off by default, opt-in via env var. |
+| **Rate limiting** | Same reason as HMAC. Even with HMAC, a stolen key needs throttling. | Per-IP 60-requests-per-5-min window in `Normalize Payload`. Configurable. |
+| **Multi-provider switch** | Provider lock-in is bad for the builder. They want to A/B OpenAI vs Anthropic, swap if costs spike, fall back if one is down. | `Set Provider` + `Route by Provider` switch lets the builder pick OpenAI (default) or Anthropic. Both branches converge in a Code node that normalizes the response shape. |
+| **Memory de-duplication** | Same observation written twice creates noise. | StudioMeyer Memory's gatekeeper deduplicates on >95% similarity automatically. Our templates rely on it. |
+
+These five patterns are the difference between a template you import to learn and a template you import to ship.
 
 ## Repo structure
 

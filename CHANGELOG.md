@@ -4,6 +4,25 @@ All notable changes to this repository will be documented here. The format is lo
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-30
+
+### Added
+
+- **Production patterns block** in every template README. Five sections covering idempotency, error branches with the correct `{{ $error.message }}` syntax (the deprecated `$json.execution.error.message` did not work), webhook HMAC verification (Vapi `x-vapi-signature`, Retell `x-retell-signature`, Telegram secret-token, Stripe), rate limiting (60 requests / 5 min / IP, configurable), and memory de-duplication via the gatekeeper. These are the patterns that distinguish a "demo this" template from a "ship this" template, and they are missing from every other public n8n template repo we audited.
+- **Tech stack matrix** in every template README. Concrete versions, costs, free-tier limits, and required-when columns for n8n, the community node, StudioMeyer Memory, OpenAI / Anthropic, and the trigger provider.
+- **Credentials checklist** in every template README. Four-item checkbox list with where to get each key, which auth-mode to pick, and what test endpoint confirms it works.
+- **Hard compatibility floor** of n8n 2.10.1 declared in the top-level README and brand bibel. Background: CVE-2026-27493 (CVSS 9.5, fixed Feb 2026) is an unauthenticated RCE in Form nodes. None of these templates use Form nodes, but no one should run a vulnerable n8n in any case. 1.x users: upgrade to 1.123.22 or later.
+- **"What makes these templates different" section** in the top-level README. A six-row table listing the production patterns, why each one matters, and where in the workflow they live. Driven by the research-agent finding that no competitor template ships these patterns.
+
+### Changed
+
+- **N8N-BRAND-BIBEL.md** expanded with five new pflicht-sections covering Error Handling (correct n8n syntax), Idempotency (in-memory dedup with 5-min window, swap-to-Redis note), Webhook HMAC (HMAC-SHA256 + timing-safe-equal Code-Node skeleton), Rate Limiting (per-IP bucket pattern), and a 10b/c/d/e block for Production Patterns / Hard Compatibility Floor / Tech Stack Matrix / Credentials Checklist as mandatory README sections.
+- The em-dash guard in `.github/workflows/validate-workflows.yml` already enforced the no-em-dash rule, but the rule is now also called out explicitly in the brand bibel under "Voice-Regeln".
+
+### Notes
+
+- This release is the response to the 3-agent code review (analyst, critic, research). Critic flagged CVE-2026-27493 awareness and a missing pre-release validator. Research found that the production patterns above are the differentiator that no competitor template repo ships. Analyst hung on the first `agent_recall` tool call (the repo is markdown + JSON, not source code, so codebase-memory-mcp had no symbols to bind), so we cannot include analyst findings in this release.
+
 ## [0.2.0] - 2026-04-30
 
 ### Added

@@ -158,6 +158,63 @@ Plus ein Satz mit Schaetzung pro Monat bei realistic Volume.
 
 Pro Gotcha: ein Bold-Lead-Phrase als Bullet-Start, dann Erklaerung in Fliesstext. Was geht schief, warum, wie behebt man es.
 
+### 10b. Production Patterns (NEU, Pflicht ab v0.3)
+
+Ein Block der in JEDEM Template README zwischen "Common gotchas" und "Related templates" steht. Vier Sub-Sections:
+
+**Idempotency.** Welcher Field eindeutig identifiziert, dass ein Trigger-Event schon einmal verarbeitet wurde? Code-Snippet das ein in-memory-Set fuer 5-Minuten-Window haelt (Default) oder Redis SET NX Pattern (fuer Production-Skalierung). Pro Template:
+- 01 Voice Agent: `callId` (Vapi `message.call.id` / Retell `call.call_id`)
+- 02 Customer Support: Telegram `update_id` oder `message.message_id`
+- 03 Personal Assistant: Telegram `update_id`
+
+**Error Branches.** Jeder LLM-Call und jeder externe API-Call muss einen Error-Output haben der nicht still failed. n8n-Syntax fuer Error-Daten ist `{{ $error.message }}` (NICHT `$json.execution.error.message`, das ist deprecated/falsch). AI-Agent-Nodes muessen auf "Stop and Return Error" gesetzt sein. Sticky Note dokumentiert das pro Template.
+
+**Webhook Security.** Wenn der Trigger ein Webhook ist und der Anbieter HMAC-Signing unterstuetzt (Vapi via `signing-secret` Header, Retell via `X-Retell-Signature`, Stripe `Stripe-Signature`, Telegram via `X-Telegram-Bot-Api-Secret-Token`), muss ein Code-Node am Anfang die Signatur verifizieren und unsignierte Requests verwerfen. Code-Snippet als Inline-Sticky Note. Default-Implementation: HMAC-SHA256 mit timing-safe-equal.
+
+**Rate Limiting.** Memory + LLM Calls sind nicht kostenlos. Wenn der Trigger ein Public-Webhook ist (also ohne Auth), muss eine Rate-Limit-Stage davor (n8n hat keinen native Rate-Limit-Node, also Code-Node mit IP-Map + Window) dafuer sorgen dass ein Angreifer den Bill nicht auf $1000 pumpt. Pro Template Default: 60 requests / 5 min / IP, ueberschreibbar.
+
+### 10c. Hard Compatibility Floor (NEU, Pflicht ab v0.3)
+
+Pro Template README in der Setup-Sektion explizit:
+
+```markdown
+**Minimum n8n version: 2.10.1** (CVE-2026-27493 fix). Older versions of n8n have an unauthenticated RCE vulnerability in Form nodes. This template does not use Form nodes itself, but you should still upgrade for general security. Older 1.x users: upgrade to 1.123.22 or later.
+```
+
+Plus im Top-Level README ein Banner.
+
+### 10d. Tech-Stack-Matrix (NEU, Pflicht ab v0.3)
+
+Tabelle in jedem Template README zwischen "Setup" und "Multi-Provider Switch". Was an Tools / Versionen / Tiers / Cost gebraucht wird. Beispiel:
+
+```markdown
+## Tech stack matrix
+
+| Component | Version | Cost | Free tier | Required |
+|---|---|---|---|---|
+| n8n | >= 2.10.1 | self-hosted free / Cloud $20/mo | n/a | yes |
+| n8n-nodes-studiomeyer-memory | >= 0.1.0 | free | n/a | yes |
+| StudioMeyer Memory | API key | EUR 0 / 29 / 49 | 10k ops/month | yes |
+| OpenAI (default) | gpt-5-mini | $0.15/1M input | $5 free credit | yes if provider=openai |
+| Anthropic | claude-haiku-4-5 | $1/1M input | $5 free credit | yes if provider=anthropic |
+| Vapi or Retell | varies | $0.07-0.15/min | trial credits | yes |
+```
+
+### 10e. Credentials Checklist (NEU, Pflicht ab v0.3)
+
+Direkt unter dem Tech-Stack-Matrix. Jede Credential die der User in n8n anlegen muss, mit (a) wo bekomme ich sie her, (b) welcher Auth-Mode, (c) welcher Test-Endpoint zeigt dass es funktioniert.
+
+```markdown
+## Credentials checklist
+
+Before activation, create these credentials in n8n:
+
+- [ ] **StudioMeyer Memory API** (`studioMeyerMemoryApi`). Get key at memory.studiomeyer.io/dashboard/keys. Test: any memory.search call returns 200.
+- [ ] **OpenAI API** (`openAiApi`) OR **Anthropic API** (`anthropicApi`). Get key at platform.openai.com / console.anthropic.com. Test: model list endpoint returns models.
+- [ ] **Vapi / Retell** (provider-specific). Setup webhook URL in their dashboard pointing at your n8n instance.
+- [ ] **HMAC signing secret** (optional but recommended). For provider HMAC verification. Get from Vapi/Retell webhook settings.
+```
+
 ### 11. Related templates (Cross-Link Footer)
 
 ```markdown
@@ -209,6 +266,96 @@ Build Prompt → Set Provider → Route by Provider ─┬─ OpenAI Reply ─�
 ```
 
 Default-Provider ist `openai` (groessere Audience). User kann mit einem Klick auf `anthropic` umstellen. Code-Node `Normalize LLM Output` extrahiert `replyText` aus beiden Response-Shapes.
+
+### Error-Handling Pattern (Pflicht wenn LLM-Call oder externer API-Call)
+
+In n8n setzt man pro Node unter den 3-dot-Menu "On Error" auf "Continue (Error Output)" oder "Stop and Return Error" je nach Use-Case. Der Error-Output-Pin ist im Editor rot.
+
+Korrekte Syntax fuer Error-Daten in nachfolgenden Nodes:
+
+```
+{{ $error.message }}
+{{ $error.name }}
+{{ $error.description }}
+```
+
+NICHT `{{ $json.execution.error.message }}` (deprecated, gibt undefined). NICHT `{{ $error }}` ohne field (rendert das Object als string, unbrauchbar).
+
+Pro Template mindestens ein Error-Branch der die LLM-Failure abfaengt:
+- LLM Reply Node: "On Error" = "Continue (Error Output)"
+- Error-Branch landet in einem Code-Node der ein Fallback-Reply baut ("Sorry, our system is briefly unavailable. We'll get back to you within an hour.") und Memory mit category="mistake" + tag="llm-error" loggt
+- Memory-Logging im Error-Branch ist Pflicht damit wir Fehler-Patterns sehen
+
+### Idempotency Pattern (Pflicht wenn der Trigger replay-faehig ist)
+
+n8n's Default ist fire-and-forget: bei einem Provider-Retry (Vapi sendet das gleiche `call_ended` zweimal, Telegram retryt bei Webhook-5xx) executet der Workflow zweimal und schreibt zweimal Memory.
+
+Loesung: Code-Node am Anfang nach Trigger der einen Idempotency-Key extrahiert (Vapi `callId`, Telegram `update_id`, etc.) und gegen einen In-Memory-Set checkt. Wenn schon gesehen → return, sonst weiter.
+
+```js
+// At top of "Normalize Payload" code node, after extracting idempotencyKey:
+const seen = $getWorkflowStaticData('global').seenKeys ?? {};
+const now = Date.now();
+// Purge entries older than 5 minutes
+for (const k of Object.keys(seen)) if (now - seen[k] > 300000) delete seen[k];
+if (seen[idempotencyKey]) {
+  return [{ json: { skipped: true, reason: 'duplicate', idempotencyKey } }];
+}
+seen[idempotencyKey] = now;
+$getWorkflowStaticData('global').seenKeys = seen;
+```
+
+Production-Skalierung: ersetze `$getWorkflowStaticData` mit Redis SET NX (`SET key value EX 300 NX`). `$getWorkflowStaticData` ist per-Workflow-Instance, nicht cluster-aware.
+
+### Webhook HMAC Verification (Pflicht wenn Trigger-Provider HMAC-Signing anbietet)
+
+Wenn der Anbieter eine Signing-Secret + Header-Signatur unterstuetzt, MUSS der erste Code-Node nach dem Webhook-Trigger den HMAC verifizieren und unsignierte oder falsch signierte Requests verwerfen.
+
+Provider-Header (Stand 2026-04):
+- Vapi: `x-vapi-signature` (HMAC-SHA256 von Body)
+- Retell: `x-retell-signature`
+- Telegram: `x-telegram-bot-api-secret-token` (vergleicht mit hinterlegtem Token, kein HMAC)
+- Stripe: `Stripe-Signature` (HMAC-SHA256 mit timestamp-prefix)
+
+Code-Node am Anfang:
+
+```js
+const crypto = require('crypto');
+const secret = $env('VAPI_SIGNING_SECRET'); // or hardcoded with credential mention
+const sig = $request.headers['x-vapi-signature'];
+const body = JSON.stringify($request.body);
+const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
+if (!sig || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+  throw new Error('HMAC verification failed');
+}
+return [{ json: $request.body }];
+```
+
+In Sticky-Note dokumentiert: User muss `VAPI_SIGNING_SECRET` als n8n env var setzen, sonst ist der Workflow public-callable und der Bill-Schaden potentiell hoch. Default-Behavior ohne secret: Workflow funktioniert weiter aber loggt Warning ins Memory.
+
+### Rate Limiting Pattern (Pflicht wenn Trigger-Webhook public ist)
+
+Public Webhook + LLM-Call = potentielle Bill-Bombe wenn Angreifer 1000x in einer Minute hittet. Default-Schutz: Code-Node am Anfang mit IP-basiertem Limit.
+
+```js
+const ip = $request.headers['x-forwarded-for']?.split(',')[0]?.trim() ?? $request.headers['x-real-ip'] ?? 'unknown';
+const buckets = $getWorkflowStaticData('global').rateBuckets ?? {};
+const now = Date.now();
+const WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+const LIMIT = 60; // 60 requests per IP per window
+
+const bucket = buckets[ip] ?? { count: 0, windowStart: now };
+if (now - bucket.windowStart > WINDOW_MS) { bucket.count = 0; bucket.windowStart = now; }
+bucket.count++;
+buckets[ip] = bucket;
+$getWorkflowStaticData('global').rateBuckets = buckets;
+
+if (bucket.count > LIMIT) {
+  throw new Error(`Rate limit exceeded for ${ip}: ${bucket.count} requests in window`);
+}
+```
+
+Production-Skalierung: Redis INCR + EXPIRE. Das Pattern ist gut genug fuer Single-Instance-Deployments + skalierbar bis ~10k requests/Stunde.
 
 Aktuelle Model-IDs (Stand 2026-04-30, [Memory `0d27da68`](https://memory.studiomeyer.io)):
 
