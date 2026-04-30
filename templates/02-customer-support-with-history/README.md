@@ -19,10 +19,19 @@ The bot now has institutional memory. The third time a customer writes "my login
 ## Architecture
 
 ```
-[Telegram Trigger]
+[Telegram Trigger]                ← secretToken option = built-in HMAC
         │
         ▼
-[Extract Customer Key]            ← email regex; fallback to Telegram user ID
+[Verify Webhook (opt-in)]         ← WEBHOOK_INTEGRITY_CHECK_ENABLED=1
+        │
+        ▼
+[Rate Limit (opt-in)]             ← RATE_LIMIT_ENABLED=1, 60/5min/chat
+        │
+        ▼
+[Idempotency Check (opt-in)]      ← IDEMPOTENCY_ENABLED=1, dedup on update_id
+        │
+        ▼
+[Extract Customer Key]            ← email regex, fallback to Telegram user ID
         │
         ▼
 [Memory: Lookup Customer]         ← entity.search, entityType=customer
@@ -39,13 +48,25 @@ The bot now has institutional memory. The third time a customer writes "my login
 [Build LLM Prompt]                ← injects dossier into system prompt
             │
             ▼
-[Claude Reply]                    ← Claude Sonnet 4.6
-            │
-   ┌────────┼────────────────┐
-   ▼        ▼                ▼
-[Telegram Reply]  [Memory: Observe]  [Memory: Learn]
-                  (per-ticket)        (corpus-wide insight)
+[Set Provider] → [Route by Provider]
+            ┌────────┴─────────┐
+            ▼                  ▼
+   [OpenAI Reply]      [Anthropic Reply]
+   gpt-5-mini default  claude-haiku-4-5
+   onError: continue   onError: continue
+   │       │           │       │
+ success error       success error
+   │       │           │       │
+   ▼       ▼           ▼       ▼
+[Normalize] ◄──────────┘   [LLM Fallback Reply]
+   │                              │
+   ├─ Telegram Reply ◄─────────────┤
+   ├─ Memory: Observe Ticket       │
+   └─ Memory: Learn Ticket         └─ Memory: Learn Error
+                                      (category: mistake)
 ```
+
+The error branch is always wired. If OpenAI rate-limits or Anthropic returns 5xx, the customer still gets a graceful reply and the failure lands in your knowledge graph as a `mistake` learning so you can spot patterns.
 
 ## Memory model
 
@@ -71,7 +92,8 @@ The dual write (observation + learning) costs you one extra memory op per ticket
 3. **Add credentials in n8n:**
    - StudioMeyer Memory API → API Key from [memory.studiomeyer.io/dashboard/keys](https://memory.studiomeyer.io/dashboard/keys).
    - Telegram → paste the bot token.
-   - Anthropic API → free-tier key works; this template uses Sonnet 4.6 for richer replies.
+   - OpenAI API (default provider) → key from [platform.openai.com](https://platform.openai.com), `gpt-5-mini` is the current default mini tier.
+   - Anthropic API (alternative provider) → key from [console.anthropic.com](https://console.anthropic.com), `claude-haiku-4-5` is the current Haiku tier (faster and cheaper than Sonnet for support replies).
 
 4. **Import the workflow** (`workflow.json` in this folder).
 
@@ -92,6 +114,26 @@ Replace two nodes; the middle 8 stay identical:
 
 In each case, update the `Extract Customer Key` Code node to read the right field for customer identity (e.g. WhatsApp `from`, Intercom `user.email`, Slack `user.id`).
 
+## Multi-provider switch
+
+The workflow ships with two providers wired in parallel: OpenAI `gpt-5-mini` (default) and Anthropic `claude-haiku-4-5`. Pick one or run both behind a feature flag.
+
+**Switch from OpenAI to Anthropic:**
+
+1. Open the `Set Provider` node.
+2. Change the `provider` field from `openai` to `anthropic`.
+3. Save and re-test, the workflow now routes through `Anthropic Reply`.
+
+**Add a third provider (Gemini, Mistral, local Ollama):**
+
+1. Add a new Reply node (e.g. `Gemini Reply`) using whichever credential type fits.
+2. Add a new rule in `Route by Provider` that matches `provider == "gemini"` and routes to the new node.
+3. On the new Reply node, set `On Error: Continue (Error Output)`. Connect main output 0 to `Normalize LLM Output` and main output 1 to `LLM Fallback Reply`.
+4. Update `Normalize LLM Output` to handle the new provider's response shape (the existing code already handles OpenAI `choices[0].message.content` and Anthropic `content[0].text`, just append a third branch for the new shape).
+5. Set `provider` to `gemini` in `Set Provider` to test.
+
+The error branch and Memory writes stay identical, you only add nodes, never edit the convergence point.
+
 ## Extending
 
 **Hand off to humans on demand.** Add a sentiment-check IF after Claude. If the reply suggests escalation ("I'd recommend speaking with a manager"), post the customer's full dossier into a #support Slack channel with a button that mutes the bot for that customer for 24h.
@@ -102,19 +144,57 @@ In each case, update the `Extract Customer Key` Code node to read the right fiel
 
 **Multi-language.** Add a language-detection step before `Build LLM Prompt`. Store the detected language as an observation. The system prompt then instructs Claude to reply in the customer's language.
 
+**Customer health score.** After `Memory: Customer Dossier`, run a small Code node that scores each customer on three signals: ticket frequency (observations per week), last interaction recency, and sentiment trend (parse a sentiment tag from the most recent N observations). Persist the score as a new observation `health: 4/10`. Then add an IF after Build LLM Prompt: customers below 5 get a different system prompt that prioritizes empathy over speed and offers escalation up-front. Pre-empt churn before it happens.
+
 ## Cost notes
 
-Per ticket (1 customer, ~200-word reply):
+Per ticket the workflow does 4 Memory ops (Lookup + Open or Create + Observe + Learn) plus 1 LLM call. Cost depends on which provider you pick.
 
-| Component | Approx cost |
-|---|---|
-| 2× Memory operations (lookup + open) | ~$0.0008 |
-| 1× Claude Sonnet 4.6 (~600 tokens out) | ~$0.005 |
-| 2× async memory writes | ~$0.001 |
-| **Total per ticket** | **~$0.007** |
+| Component | Cost (Stand 2026-04) | Per-ticket cost |
+|---|---|---|
+| **StudioMeyer Memory** | EUR 0 / 29 / 49 per month | Free tier: 10k ops/mo (~2500 tickets). Pro tier: unlimited. |
+| **OpenAI gpt-5-mini** (default) | $0.25 / 1M input + $2.00 / 1M output | ~$0.0014 per ticket (~500 in + 600 out tokens) |
+| **Anthropic claude-haiku-4-5** | $1 / 1M input + $5 / 1M output | ~$0.0035 per ticket |
+| Telegram Bot API | free | free |
 
-At 5 000 tickets/month → ~$35/month all-in. The free Memory tier covers ~10 000 ops/month; the EUR 29/mo Pro tier removes that cap and unlocks the 3D customer-relationship graph.
+**Worked example at 5 000 tickets/month:**
 
+| Stack | Memory | LLM | Total |
+|---|---|---|---|
+| OpenAI gpt-5-mini | EUR 29/mo (Pro tier required) | ~$7/mo | **~EUR 36/mo** |
+| Anthropic claude-haiku-4-5 | EUR 29/mo | ~$17.50/mo | **~EUR 47/mo** |
+
+Below 2 500 tickets/month you stay within the free Memory tier and pay only the LLM (~$1-9/mo). Pro tier ($29/mo) also unlocks the 3D customer-relationship graph at memory.studiomeyer.io/portal/memory/knowledge.
+
+The error branch fires on LLM failures (rate limit, 5xx). It writes one extra Memory op (Learn Error) per failure. At a healthy 99.5% success rate this adds <0.5% to your bill.
+
+
+## Common gotchas
+
+- **No email and no `from.id` in message.** Channel posts and forwarded messages without a sender have no Telegram user id. The customer-key extractor falls back to `chat:<chatId>` so two anonymous senders in the same chat collapse into one entity, which is the right behavior for a channel-as-customer setup. If you want strict per-sender separation, add an early IF that drops messages without `message.from.id` instead of falling back. The extractor throws when even chat id is missing.
+- **Customer with two Telegram accounts looks like two people.** When an email IS provided in a later message, run a separate maintenance workflow that uses `entity.relate` to merge the `tg:<id>` entity into the email entity. Then re-tag downstream observations.
+- **Markdown rendering.** Telegram parses Markdown but only a subset (no tables, limited links). The `parse_mode: Markdown` field works for bold/italic, if you need richer formatting switch to `MarkdownV2` and escape special characters in the reply text.
+- **Bot rate limit.** Telegram bots get throttled at ~30 messages/sec across all chats. For high-volume scenarios, use the WhatsApp Cloud API or batch replies.
+- **Duplicate observations on retry.** If n8n retries the workflow, the entity-observe step might write the same ticket twice. Memory's gatekeeper deduplicates on >95% similarity, so identical observations get skipped automatically. For belt-and-suspenders, toggle the Idempotency Code node on with `IDEMPOTENCY_ENABLED=1`.
+- **Anthropic node type-string.** The Anthropic Reply node uses `@n8n/n8n-nodes-langchain.anthropic` (the LangChain-vendored direct-API node), not `n8n-nodes-base.anthropic` (which does not exist in n8n core and produces "Unrecognized node type" on activation). The OpenAI counterpart in this template is the core `n8n-nodes-base.openAi` (verified working in n8n 2.15.0, recognized by pre-activation check). Newer n8n versions also expose `@n8n/n8n-nodes-langchain.openAi`, both work as of May 2026. If you fork this template and a Reply branch fails to activate, double-check the type-string against your n8n version.
+
+## Production patterns
+
+Five patterns ship in `workflow.json` as actual nodes, not as snippets you have to copy from a wiki. Three are opt-in via env vars and pass through when unset (so the default import boots clean). The error branch and Memory de-dup are always on.
+
+**Idempotency** (opt-in, `IDEMPOTENCY_ENABLED=1`). The `Idempotency Check` Code node holds a 5-minute in-memory window of seen `update_id` values and short-circuits duplicates. Telegram retries on 5xx so this catches double-fires without touching Memory or the LLM. For clustered n8n deployments, swap the `$getWorkflowStaticData` block for Redis `SET NX EX 300`. The node has the swap pattern in its comments.
+
+**Rate limiting** (opt-in, `RATE_LIMIT_ENABLED=1`). The `Rate Limit` Code node caps each Telegram chat at 60 requests in a 5-minute sliding window. Without this, a misbehaving client or a leaked bot URL spikes your LLM bill. The map is bounded at 5 000 entries and evicts expired buckets when full. For real production loads, put rate limiting on a reverse proxy (Nginx `limit_req_zone`, Cloudflare WAF, Traefik) and keep this node as defense-in-depth.
+
+**Webhook security** (opt-in, configured on the trigger). Telegram's `secretToken` mechanism is built into the Telegram Trigger node. Set `additionalFields.secretToken` to a strong random string and re-register the webhook with Telegram's `setWebhook?secret_token=...`. Telegram then sends `X-Telegram-Bot-Api-Secret-Token` on every call and the trigger validates it automatically. The optional `Verify Webhook` Code node downstream (toggled with `WEBHOOK_INTEGRITY_CHECK_ENABLED=1`) is the second defense layer: it rejects malformed payloads that pass HMAC but lack the fields downstream nodes need. For non-Telegram triggers (WhatsApp, Slack, custom HTTP), replace the Telegram Trigger with a generic Webhook node and use the HMAC + length-guard pattern from [N8N-BRAND-BIBEL.md](../../N8N-BRAND-BIBEL.md).
+
+**Error branches** (always on). Both LLM Reply nodes have `On Error: Continue (Error Output)` enabled. The error pin lands at `LLM Fallback Reply`, which builds a graceful customer-facing message and feeds two destinations: Telegram Reply (so the customer gets an answer) and Memory: Learn Error with `category: mistake, tags: [llm-error, <provider>]` (so you spot patterns in the knowledge graph). The `Route by Provider` fallback output (when the `provider` field is neither `openai` nor `anthropic`, e.g. typo) also lands at `LLM Fallback Reply`, so a misconfigured provider value still produces a reply instead of silent dead-end. The error syntax is `{{ $json.error.message }}`, not `{{ $error.message }}` (which does not exist in n8n) and not `{{ $json.execution.error.message }}` (which is for separate Error Trigger Workflows, not inline error pins).
+
+**Memory de-duplication** (always on, server-side). StudioMeyer Memory's gatekeeper deduplicates writes on >95% content similarity automatically. If your workflow somehow fires twice on the same observation despite idempotency (clock skew, manual re-run), the second write is silently skipped. You can verify by checking `action: SKIPPED, similarity: 1` in the Memory response. This is server-side, no env var needed.
+
+## Hard compatibility floor
+
+**Minimum n8n version: 2.10.1** (CVE-2026-27493 fix). Older versions of n8n have an unauthenticated RCE vulnerability in Form nodes. This template does not use Form nodes itself, but you should still upgrade for general security. Older 1.x users: upgrade to 1.123.22 LTS or later. The pre-activation check on n8n 2.15.0 was used to validate every node type-string in this template.
 
 ## Tech stack matrix
 
@@ -123,8 +203,8 @@ At 5 000 tickets/month → ~$35/month all-in. The free Memory tier covers ~10 00
 | n8n | >= 2.10.1 (CVE-2026-27493 floor) | self-hosted free / Cloud $20/mo | n8n Cloud trial | always |
 | n8n-nodes-studiomeyer-memory | >= 0.1.0 | free | n/a | always |
 | StudioMeyer Memory | API key | EUR 0 / 29 / 49 | 10k ops/month | always |
-| OpenAI (default) | gpt-5-mini | $0.15 / 1M input tokens | $5 trial credit | provider = openai |
-| Anthropic | claude-haiku-4-5 | $1 / 1M input tokens | $5 trial credit | provider = anthropic |
+| OpenAI (default) | gpt-5-mini | $0.25 / 1M input + $2.00 / 1M output | $5 trial credit | provider = openai |
+| Anthropic | claude-haiku-4-5 | $1 / 1M input + $5 / 1M output | $5 trial credit | provider = anthropic |
 | Telegram (BotFather token) or WhatsApp Cloud API | latest stable | varies | trial available | always |
 
 Telegram bots are free. Cloud API requires a verified Meta business account for WhatsApp.
@@ -135,29 +215,38 @@ Before activation, create these credentials in n8n:
 
 - [ ] **StudioMeyer Memory API** (`studioMeyerMemoryApi`). Get key at [memory.studiomeyer.io/dashboard/keys](https://memory.studiomeyer.io/dashboard/keys). Test: any memory.search call returns `success: true`.
 - [ ] **OpenAI API** (`openAiApi`) OR **Anthropic API** (`anthropicApi`). Get key at [platform.openai.com](https://platform.openai.com) / [console.anthropic.com](https://console.anthropic.com). Test: model list endpoint returns models.
-- [ ] **Telegram** (Bot token from @BotFather). Setup webhook URL in the provider dashboard pointing at your n8n instance.
-- [ ] **Webhook signing secret (recommended)**. For HMAC verification. Set as n8n env var `TELEGRAM_WEBHOOK_SECRET`. Without it, the webhook is public-callable by anyone who knows the URL.
+- [ ] **Telegram** (Bot token from @BotFather). After activation, n8n registers the webhook automatically.
+- [ ] **Telegram webhook secret token (recommended).** For pre-activation, expand the Telegram Trigger node's `additionalFields` and set `secretToken` to a strong random string. Then re-register the Telegram webhook with the same secret. Telegram sends `X-Telegram-Bot-Api-Secret-Token` on every webhook and the trigger validates it. Without this, the webhook is public-callable by anyone who guesses the URL.
 
-## Production patterns
+## Live verification
 
-These five patterns are documented as copy-paste-ready code snippets in the [N8N-BRAND-BIBEL.md](../../N8N-BRAND-BIBEL.md). The current `workflow.json` ships the **happy path** so a builder can import and run it in 5 minutes. The production patterns below are **opt-in additions** you wire in when you move from "test in dev" to "deploy to prod". Drop-in nodes, no architectural rebuild required. They are the difference between a template you import to learn and a template you import to ship.
+The Memory pattern was smoke-tested live in [n8n.studiomeyer.io](https://n8n.studiomeyer.io) (n8n v2.15.0) against the production Memory backend at [memory.studiomeyer.io](https://memory.studiomeyer.io) on 2026-04-30:
 
-**Idempotency.** Telegram Trigger (or WhatsApp / Slack / Intercom) retries on 5xx. The first Code node after the trigger extracts an idempotency key (Telegram `update_id` or `message.message_id`) and checks an in-memory dedup window of 5 minutes. Duplicate triggers return early without firing memory writes or LLM calls. For clustered deployments, swap the `$getWorkflowStaticData` block for Redis `SET NX EX 300`.
+| Execution | Path | Result |
+|---|---|---|
+| `445` | New customer → `Memory: Create Customer` → `Observe` + `Learn` | success, learn-id `7f08762c-ad67-493a-bdb3-fd6e7d626890` ADDED |
+| `446` | Known customer (same key) → `Memory: Customer Dossier` (entity.open) → `Observe` + `Learn` | success, learn-id `0c45bd1f-254c-4b3b-9b7b-35a95729bb04` ADDED |
 
-**Error branches.** The LLM Reply nodes (OpenAI Reply, Anthropic Reply) have "On Error: Continue (Error Output)" enabled. The error pin connects to a fallback Code node that builds a graceful reply ("Sorry, our system is briefly unavailable. We will get back to you within an hour.") and writes a `category: mistake, tags: [llm-error, <provider>]` learning to Memory. You see every LLM failure in the knowledge graph and can spot patterns. Use  in the node directly downstream of the red error pin. The other documented syntax  is for a separate Error Trigger Workflow (set in Workflow Settings → Error Workflow), not for inline error handling. The often-quoted  does not exist in n8n expressions.
+Both branches of the `Known Customer?` IF were exercised against the live Memory backend with `studioMeyerMemoryApi` credential `xHkYfKM529ZfsrXw`. The full structural validation (25 nodes, 16 connections, 0 missing references, all node types recognized by n8n's pre-activation check) passed including the `@n8n/n8n-nodes-langchain.anthropic` type-string for the Anthropic Reply node.
 
-**Webhook HMAC verification.** Telegram `x-telegram-bot-api-secret-token` (set when registering webhook). The first Code node verifies the signature with `crypto.timingSafeEqual` and rejects unsigned or wrongly-signed requests. Off by default; enable by setting the n8n env var `TELEGRAM_WEBHOOK_SECRET` to your provider's signing secret. Without HMAC, an attacker who guesses your webhook URL can spike your bill.
+Full end-to-end execution (with LLM Reply nodes firing real OpenAI / Anthropic calls and Telegram delivering the reply) requires user-supplied OpenAI or Anthropic plus Telegram credentials. To reproduce: import `workflow.json` into your own n8n, attach the four credentials (Memory API + OpenAI or Anthropic + Telegram bot), and either message your bot from Telegram or fire a synthetic update from inside the container with `docker exec <container> node -e "fetch('http://localhost:5678/webhook/<webhook-path>', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({update_id: 1, message: {message_id: 1, from: {id: 1, username: 'test'}, chat: {id: 1}, text: 'hello'}})})"`.
 
-**Rate limiting.** Per-IP 60-requests-per-5-minute window. Tracked in `$getWorkflowStaticData('global').rateBuckets`. Adjust the `LIMIT` and `WINDOW_MS` constants in the rate-limit Code node. For higher-throughput production: swap to Redis `INCR` + `EXPIRE`.
+## How this compares
 
-**Memory de-duplication.** StudioMeyer Memory's gatekeeper deduplicates writes on >95% content similarity automatically. If your workflow somehow fires twice on the same observation despite idempotency (e.g. clock skew, manual re-run), the second write is silently skipped. You can verify by checking `action: SKIPPED, similarity: 1` in the Memory response.
+The four memory layers a 2026 builder considers for an n8n bot:
 
-## Common gotchas
+| Feature | StudioMeyer Memory | Mem0 | Zep | Memori |
+|---|---|---|---|---|
+| Verified n8n custom node | Yes (this repo, npm provenance) | Community HTTP node | Community node | Third-party node |
+| Reference templates ship | 8 templates in this repo | Reddit posts only | Some | None curated |
+| Free tier | 10k ops/mo | 10K memories + 1K retrieval calls/mo | 1k credits/mo cloud + Graphiti OSS self-host | OSS self-host only |
+| Bi-temporal `asOf` queries | Yes | Limited | Yes (via Graphiti) | No |
+| Knowledge graph (entities + relations) | Native | Hybrid vector + graph | Native (Graphiti) | Vector only |
+| Multi-tenant isolated by default | Yes | Manual config | Manual config | Self-host |
+| EU hosting | Yes (Frankfurt, Hetzner) | US-default | US-default | Self-host |
+| OAuth 2.1 + API key | Both | API key | API key | API key |
 
-- **No email in message.** Customers rarely identify themselves up-front. The Telegram-ID fallback works, but it produces one entity per Telegram account, not one per real human (a customer who has two accounts looks like two people). Mitigation: when an email IS provided in a later message, run a separate workflow that uses `entity.relate` to merge the `tg:<id>` entity into the email entity.
-- **Markdown rendering.** Telegram parses Markdown but only a subset (no tables, limited links). The `parse_mode: Markdown` field works for bold/italic; if you need richer formatting, switch to `MarkdownV2` and escape special characters in the reply text.
-- **Bot rate limit.** Telegram bots get throttled at ~30 messages/sec across all chats. For high-volume scenarios, use the WhatsApp Cloud API or batch replies.
-- **Duplicate observations on retry.** If n8n retries the workflow, the entity-observe step might write the same ticket twice. Memory's gatekeeper deduplicates on >95% similarity, so identical observations get skipped automatically. For belt-and-suspenders, add an idempotency key based on the Telegram `message_id` and short-circuit before the observe step.
+All four projects are open about their tradeoffs. The fastest comparison: wire each one to a throwaway Telegram bot for a day and see which response shape feels right for your use case.
 
 ## Related templates
 

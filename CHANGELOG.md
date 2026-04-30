@@ -4,6 +4,32 @@ All notable changes to this repository will be documented here. The format is lo
 
 ## [Unreleased]
 
+### Added
+
+- **Template 02 hardened to v0.4.0 production-pattern standard** (first template to ship the patterns as actual opt-in nodes in workflow.json instead of documentation-only). Three new opt-in Code nodes between trigger and customer-key extraction: `Verify Webhook (opt-in)` (gated by `WEBHOOK_INTEGRITY_CHECK_ENABLED=1`), `Rate Limit (opt-in)` (gated by `RATE_LIMIT_ENABLED=1`), `Idempotency Check (opt-in)` (gated by `IDEMPOTENCY_ENABLED=1`). Each pass-through when its env var is unset, so the default import still boots clean. Production deployments toggle all three plus the Telegram Trigger `secretToken`. Concurrency disclaimer for `$getWorkflowStaticData` documented inline plus production-recommendation snippets for Redis and reverse-proxy migration paths.
+- **Error-output branch wired in workflow.json** (Template 02). Both `OpenAI Reply` and `Anthropic Reply` have `onError: continueErrorOutput` enabled. The error pin lands at the new `LLM Fallback Reply` Code node, which builds a graceful customer-facing message and feeds two destinations: `Telegram Reply` (so the customer gets an answer instead of silence) and a new `Memory: Learn Error` write with `category: mistake, tags: [llm-error, <provider>]`. The `Route by Provider` switch's fallback output (typo or unknown provider value) also lands at `LLM Fallback Reply`, so a misconfigured `provider` field still produces a reply.
+- **Live-verification table** in Template 02 README. Two real n8n executions documented: 445 (new-customer-create branch) and 446 (known-customer-open branch), both green against memory.studiomeyer.io with smoke-test execution proof.
+- **"How this compares" comparison table** in Template 02 README. Eight-row capability matrix vs Mem0, Zep, and Memori with concrete free-tier numbers (10K memories + 1K retrieval/mo for Mem0, 1k credits/mo + Graphiti OSS for Zep) and bi-temporal / EU-hosting / OAuth coverage.
+- **Multi-provider switch section** as standalone block in Template 02 README. Step-by-step instructions for switching OpenAI to Anthropic and for adding a third provider (Gemini, Mistral, Ollama) including the on-error wiring and Normalize-output extension pattern.
+- **Customer health score** as fifth Extending pattern in Template 02 README.
+- **Hard compatibility floor section** as standalone block in Template 02 README (matching brand-bibel section 10c).
+
+### Fixed
+
+- **Anthropic node type-string** in Template 02 workflow.json. Was `n8n-nodes-base.anthropic` (does not exist in n8n core, produces "Unrecognized node type" on activation). Now `@n8n/n8n-nodes-langchain.anthropic` with `resource: text, operation: message` parameters. Verified against n8n 2.15.0 pre-activation check. The same bug exists in Templates 01 and 03 and should be fixed in their next pass.
+- **Anthropic model in Template 02 workflow.json** corrected from `claude-sonnet-4-6` to `claude-haiku-4-5`. The README and brand-bibel always said Haiku 4.5, the workflow.json was a leftover from the v0.1 spec. Setup section also lost a stray "this template uses Sonnet 4.6 for richer replies" line. Haiku 4.5 is the correct choice for support-bot reply latency and cost.
+- **Customer-key extraction in Template 02** no longer produces `tg:undefined` for channel posts and forwarded messages without a sender. New fallback chain: email > Telegram user id > Telegram chat id, with a hard `throw` when all three are missing. Closes a silent collision bug where every anonymous sender accumulated into one shared customer entity.
+- **`Route by Provider` fallback output in Template 02 workflow.json** is now wired to `LLM Fallback Reply` instead of dead-ending. A typo or unknown `provider` value (e.g. `"groq"` instead of `"openai"`) used to silently drop the workflow item. Now it produces a graceful fallback reply and a `category: mistake` learning.
+- **OpenAI gpt-5-mini pricing in Template 02 README** corrected from $0.15 / $0.60 per 1M to $0.25 / $2.00 per 1M (current pricing as of 2026 verified via pricepertoken.com and openai.com/api/pricing). Per-ticket cost recalculated to ~$0.0014 (was understated as ~$0.0004). Worked example at 5 000 tickets/mo: ~EUR 36/mo (was ~EUR 31/mo).
+- **Brand-bibel section order in Template 02 README** restored. Common gotchas now precedes Production Patterns (sections 10 then 10b), Hard Compatibility Floor follows Production Patterns (10c), Tech Stack Matrix and Credentials Checklist follow (10d, 10e). Live verification and How this compares retain their extra-section status after Credentials Checklist.
+- **Sticky-note colors in Template 02 workflow.json** changed from color 4 (not in brand-bibel palette) to color 7 (explanation orange) on the Production Patterns and Error Branch sticky notes.
+
+### Notes
+
+- This is the v0.4.0 prep release. Template 02 is the first template to land the four production patterns as wired-in nodes. Template 01 (Voice Agent) and Template 03 (Personal Assistant) follow in the next two passes, each carrying the same Anthropic type-string fix and the same opt-in node pattern. Distribution push (n8n.io/workflows, awesome-n8n-templates, dev.to, Reddit, LinkedIn) holds until all three templates ship at v0.4.0 standard.
+- Smoke-test against memory.studiomeyer.io live: executions 445 + 446 both green, both branches of the Known Customer IF exercised, full Memory pattern (Lookup + Open or Create + Observe + Learn) confirmed against the production backend.
+- Three dedicated agents reviewed the template before commit (Critic + Architect + Research). Two AMBER + one AMBER. Eight findings total, seven fixed before commit, one (Research's claim that `n8n-nodes-base.openAi` is unrecognized in current n8n) rejected after live verification showed n8n 2.15.0 recognizes the type and only complains about missing credentials.
+
 ## [0.3.1] - 2026-04-30
 
 ### Fixed

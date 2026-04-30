@@ -3,8 +3,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## AI Customer Support Bot\n\n**Stack:** Telegram (or WhatsApp / web chat) \u2192 StudioMeyer Memory entity lookup \u2192 Claude with customer dossier \u2192 reply \u2192 persist outcome.\n\n**Why this beats a stateless bot:** Returning customers don't have to re-explain who they are. The bot greets them by name, references past tickets, and the agent that takes over has full history one click away.\n\n**To swap Telegram for WhatsApp:** replace the trigger node with a WhatsApp Trigger and the reply node with WhatsApp Send Message. The middle stays identical.",
-        "height": 320,
+        "content": "## AI Customer Support Bot\n\n**Stack:** Telegram (or WhatsApp / web chat) → StudioMeyer Memory entity lookup → Claude or OpenAI with customer dossier → reply → persist outcome.\n\n**Why this beats a stateless bot:** Returning customers don't have to re-explain who they are. The bot greets them by name, references past tickets, and the agent that takes over has full history one click away.\n\n**To swap Telegram for WhatsApp:** replace the trigger node with a WhatsApp Trigger and the reply node with WhatsApp Send Message. The middle stays identical.\n\n**Production patterns ship in this workflow.json** as opt-in Code nodes. See the orange Sticky Notes below for the four env vars that toggle them on.",
+        "height": 380,
         "width": 480,
         "color": 6
       },
@@ -19,8 +19,8 @@
     },
     {
       "parameters": {
-        "content": ">> SET ME <<\n\n**Telegram Bot credential** required.\n\n1. Talk to @BotFather, create a bot, get the token.\n2. n8n Credentials \u2192 New \u2192 Telegram \u2192 paste token.\n3. After activation, message your bot once and check this node's incoming-data view.",
-        "height": 220,
+        "content": ">> SET ME <<\n\n**Telegram Bot credential** required.\n\n1. Talk to @BotFather, create a bot, get the token.\n2. n8n Credentials → New → Telegram → paste token.\n3. After activation, message your bot once and check this node's incoming-data view.\n\n**Webhook security:** to harden the trigger, expand `additionalFields` and set `secretToken` to a strong random string. Then re-register the webhook so Telegram sends `X-Telegram-Bot-Api-Secret-Token` on every request. The trigger validates it automatically.",
+        "height": 320,
         "width": 320,
         "color": 5
       },
@@ -31,6 +31,22 @@
       "position": [
         240,
         -60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Production patterns (opt-in)\n\nThree Code nodes below are off by default. Toggle each with an n8n env var:\n\n- `IDEMPOTENCY_ENABLED=1` deduplicates Telegram retries on the same `update_id` (5-min window).\n- `RATE_LIMIT_ENABLED=1` caps each chat at 60 requests / 5 min.\n- `WEBHOOK_INTEGRITY_CHECK_ENABLED=1` rejects malformed payloads (no `message`, no `from`).\n\nEach node returns pass-through when its env var is unset, so the default import boots clean. Production deployments enable all three plus the Telegram Trigger `secretToken`.\n\nFor clustered n8n deployments, swap the in-memory `$getWorkflowStaticData` blocks for Redis (`SET NX EX 300` for idempotency, `INCR + EXPIRE` for rate limit). Single-instance n8n is fine with the default.",
+        "height": 360,
+        "width": 540,
+        "color": 7
+      },
+      "id": "note-production-patterns",
+      "name": "Sticky Note - Production Patterns",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        700,
+        -120
       ]
     },
     {
@@ -52,14 +68,53 @@
     },
     {
       "parameters": {
-        "jsCode": "// Extract a stable customer key from the inbound Telegram message.\n// Strategy: prefer an email if the message text contains one, otherwise\n// fall back to the Telegram user ID + username.\n\nconst body = $input.first().json;\nconst message = body?.message ?? body;\nconst text = message?.text ?? '';\nconst tgUserId = message?.from?.id;\nconst tgUsername = message?.from?.username;\nconst tgFirstName = message?.from?.first_name ?? '';\nconst chatId = message?.chat?.id;\n\n// Email regex, RFC-5322-ish but conservative\nconst emailRe = /[\\w!#$%&'*+/=?^_`{|}~.-]+@[\\w.-]+\\.[a-zA-Z]{2,}/;\nconst emailMatch = text.match(emailRe);\nconst customerEmail = emailMatch ? emailMatch[0].toLowerCase() : null;\n\n// Customer key: email if found, else stable Telegram ID\nconst customerKey = customerEmail ?? `tg:${tgUserId}`;\nconst customerLabel = customerEmail ?? (tgUsername ? `@${tgUsername}` : tgFirstName);\n\nreturn [{\n  json: {\n    customerKey,\n    customerEmail,\n    customerLabel,\n    tgUserId,\n    tgUsername,\n    tgFirstName,\n    chatId,\n    messageText: text,\n    receivedAt: new Date().toISOString(),\n  },\n}];"
+        "jsCode": "// Webhook integrity check (opt-in via WEBHOOK_INTEGRITY_CHECK_ENABLED=1).\n// Telegram Trigger handles HMAC via its secretToken option (set on the\n// trigger node itself). This Code node is the second defense layer:\n// reject malformed payloads that lack the fields downstream nodes expect.\n//\n// To enable: set the n8n env var WEBHOOK_INTEGRITY_CHECK_ENABLED to '1'.\n// To disable: leave the env var unset (default). The node passes through.\n\nconst enabled = $env.WEBHOOK_INTEGRITY_CHECK_ENABLED === '1';\nif (!enabled) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst message = item?.message ?? item;\n\nif (!message || typeof message !== 'object') {\n  throw new Error('Webhook integrity check failed: no message object');\n}\nif (typeof message.from?.id !== 'number' && typeof message.from?.id !== 'string') {\n  throw new Error('Webhook integrity check failed: missing message.from.id');\n}\nif (typeof message.chat?.id !== 'number' && typeof message.chat?.id !== 'string') {\n  throw new Error('Webhook integrity check failed: missing message.chat.id');\n}\nif (typeof message.text !== 'string' && typeof message.caption !== 'string') {\n  throw new Error('Webhook integrity check failed: no text or caption');\n}\n\nreturn [{ json: item }];"
+      },
+      "id": "support-pp-1-verify",
+      "name": "Verify Webhook (opt-in)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rate limit (opt-in via RATE_LIMIT_ENABLED=1).\n// Per-chat-id 60 requests in a 5-minute window. Tracked in workflow\n// static data (per-instance). For clustered n8n deployments or higher\n// throughput, use Nginx limit_req_zone or Cloudflare WAF instead.\n//\n// To enable: set the n8n env var RATE_LIMIT_ENABLED to '1'.\n// To disable: leave the env var unset (default). The node passes through.\n//\n// Concurrency note: $getWorkflowStaticData is not atomic. Under heavy\n// burst load the count can over-shoot the limit by a few percent. For\n// hard limits use a reverse proxy or Redis INCR + EXPIRE.\n\nconst enabled = $env.RATE_LIMIT_ENABLED === '1';\nif (!enabled) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst message = item?.message ?? item;\nconst chatId = message?.chat?.id ?? message?.from?.id ?? 'unknown';\nconst bucketKey = `chat:${chatId}`;\n\nconst data = $getWorkflowStaticData('global');\nconst buckets = data.rateBuckets ?? {};\nconst now = Date.now();\nconst WINDOW_MS = 5 * 60 * 1000;\nconst LIMIT = 60;\nconst MAX_BUCKETS = 5000;\n\nconst bucket = buckets[bucketKey] ?? { count: 0, windowStart: now };\nif (now - bucket.windowStart > WINDOW_MS) {\n  bucket.count = 0;\n  bucket.windowStart = now;\n}\nbucket.count++;\nbuckets[bucketKey] = bucket;\n\n// Bound the map: evict expired entries when full\nif (Object.keys(buckets).length > MAX_BUCKETS) {\n  const cutoff = now - WINDOW_MS;\n  for (const k of Object.keys(buckets)) {\n    if (buckets[k].windowStart < cutoff) delete buckets[k];\n  }\n}\ndata.rateBuckets = buckets;\n\nif (bucket.count > LIMIT) {\n  throw new Error(`Rate limit exceeded for ${bucketKey}: ${bucket.count} requests in 5 min window`);\n}\n\nreturn [{ json: item }];"
+      },
+      "id": "support-pp-2-ratelimit",
+      "name": "Rate Limit (opt-in)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Idempotency check (opt-in via IDEMPOTENCY_ENABLED=1).\n// Telegram retries on 5xx. Without dedup, the workflow fires twice and\n// writes Memory twice. This node holds a 5-minute in-memory window of\n// seen update_ids and short-circuits duplicates.\n//\n// To enable: set the n8n env var IDEMPOTENCY_ENABLED to '1'.\n// To disable: leave the env var unset (default). The node passes through.\n//\n// Concurrency note: $getWorkflowStaticData is not atomic and not cluster-\n// aware. Two simultaneous fires of the same update_id may both pass.\n// For production scale, swap the staticData block for Redis SET NX EX 300.\n\nconst enabled = $env.IDEMPOTENCY_ENABLED === '1';\nif (!enabled) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst message = item?.message ?? item;\nconst updateId = item?.update_id ?? message?.update_id;\nconst messageId = message?.message_id;\nconst idempotencyKey = updateId ? `tg-update:${updateId}` : (messageId ? `tg-msg:${messageId}` : null);\n\nif (!idempotencyKey) {\n  // No dedup key available, pass through\n  return [{ json: item }];\n}\n\nconst data = $getWorkflowStaticData('global');\nconst seen = data.seenKeys ?? {};\nconst now = Date.now();\nconst WINDOW_MS = 5 * 60 * 1000;\n\n// Purge expired entries\nfor (const k of Object.keys(seen)) {\n  if (now - seen[k] > WINDOW_MS) delete seen[k];\n}\n\nif (seen[idempotencyKey]) {\n  // Duplicate, short-circuit by returning empty array\n  return [];\n}\nseen[idempotencyKey] = now;\ndata.seenKeys = seen;\n\nreturn [{ json: item }];"
+      },
+      "id": "support-pp-3-idempotency",
+      "name": "Idempotency Check (opt-in)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract a stable customer key from the inbound Telegram message.\n// Priority: email in message body > Telegram user ID > Telegram chat ID.\n// We never produce 'tg:undefined' which would collapse all anonymous\n// senders (channel posts, forwarded messages without sender) into one\n// shared customer entity.\n\nconst body = $input.first().json;\nconst message = body?.message ?? body;\nconst text = message?.text ?? message?.caption ?? '';\nconst tgUserId = message?.from?.id;\nconst tgUsername = message?.from?.username;\nconst tgFirstName = message?.from?.first_name ?? '';\nconst chatId = message?.chat?.id;\n\n// Email regex, RFC-5322-ish but conservative\nconst emailRe = /[\\w!#$%&'*+/=?^_`{|}~.-]+@[\\w.-]+\\.[a-zA-Z]{2,}/;\nconst emailMatch = text.match(emailRe);\nconst customerEmail = emailMatch ? emailMatch[0].toLowerCase() : null;\n\n// Customer key resolution in fallback order:\n//   1. email if visible in the message text\n//   2. Telegram user id (when from.id is present)\n//   3. Telegram chat id (always present on valid messages, last-resort)\n// If all three are missing the message is malformed and we fail loud.\nlet customerKey;\nlet customerLabel;\nif (customerEmail) {\n  customerKey = customerEmail;\n  customerLabel = customerEmail;\n} else if (tgUserId !== undefined && tgUserId !== null) {\n  customerKey = `tg:${tgUserId}`;\n  customerLabel = tgUsername ? `@${tgUsername}` : (tgFirstName || `tg:${tgUserId}`);\n} else if (chatId !== undefined && chatId !== null) {\n  customerKey = `chat:${chatId}`;\n  customerLabel = `chat:${chatId}`;\n} else {\n  throw new Error('Cannot build customer key: message has no email, no from.id, and no chat.id');\n}\n\nreturn [{\n  json: {\n    customerKey,\n    customerEmail,\n    customerLabel,\n    tgUserId,\n    tgUsername,\n    tgFirstName,\n    chatId,\n    messageText: text,\n    receivedAt: new Date().toISOString(),\n  },\n}];"
       },
       "id": "support-2-extract",
       "name": "Extract Customer Key",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        460,
+        1120,
         320
       ]
     },
@@ -76,7 +131,7 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        680,
+        1340,
         320
       ]
     },
@@ -109,7 +164,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        900,
+        1560,
         320
       ]
     },
@@ -124,7 +179,7 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        1140,
+        1800,
         200
       ]
     },
@@ -142,8 +197,24 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        1140,
+        1800,
         460
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Why entity.open here\n\nFor returning customers we use `entity.open` (not `memory.search`) because we want the **complete dossier**: entity-type, first-seen date, every observation, every relation. That's exactly what an agent needs to feel like a colleague who reviewed the customer's file before saying hello.\n\nFor recency-weighted search across **all** memory (e.g. when the customer asks about a product topic, not their own history), use the Memory: Search operation instead.",
+        "height": 240,
+        "width": 380,
+        "color": 7
+      },
+      "id": "note-entity-open",
+      "name": "Sticky Note - entity.open",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1800,
+        -120
       ]
     },
     {
@@ -155,7 +226,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1380,
+        2040,
         320
       ]
     },
@@ -181,7 +252,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1600,
+        2260,
         320
       ]
     },
@@ -249,7 +320,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        1820,
+        2480,
         320
       ]
     },
@@ -285,18 +356,21 @@
       "name": "OpenAI Reply",
       "type": "n8n-nodes-base.openAi",
       "typeVersion": 1.7,
+      "onError": "continueErrorOutput",
       "position": [
-        2040,
+        2700,
         200
       ]
     },
     {
       "parameters": {
+        "resource": "text",
+        "operation": "message",
         "modelId": {
           "__rl": true,
-          "value": "claude-sonnet-4-6",
+          "value": "claude-haiku-4-5",
           "mode": "list",
-          "cachedResultName": "claude-sonnet-4-6"
+          "cachedResultName": "claude-haiku-4-5"
         },
         "messages": {
           "values": [
@@ -317,23 +391,53 @@
       },
       "id": "mp-anthropic",
       "name": "Anthropic Reply",
-      "type": "n8n-nodes-base.anthropic",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
       "typeVersion": 1,
+      "onError": "continueErrorOutput",
       "position": [
-        2040,
+        2700,
         440
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Normalize LLM output across providers into a single field `replyText`.\n// OpenAI:    $json.choices[0].message.content\n// Anthropic: $json.content[0].text\n\nconst raw = $input.first().json;\nlet replyText = '';\n\nif (raw?.choices?.[0]?.message?.content) {\n  replyText = raw.choices[0].message.content;\n} else if (Array.isArray(raw?.content) && raw.content[0]?.text) {\n  replyText = raw.content[0].text;\n} else if (raw?.message?.content) {\n  replyText = raw.message.content;\n} else if (raw?.text) {\n  replyText = raw.text;\n} else if (raw?.reply) {\n  replyText = raw.reply;\n} else {\n  replyText = '(LLM returned no text, check provider response shape)';\n}\n\nreturn [{\n  json: {\n    replyText: String(replyText).trim(),\n    provider: $('Set Provider').item.json.provider,\n  },\n}];"
+        "content": "## Error branch (always on)\n\nThe two LLM Reply nodes have `On Error: Continue (Error Output)` enabled. The red error pin lands at **LLM Fallback Reply**, which builds a graceful customer message and feeds two destinations:\n\n1. **Telegram Reply** so the customer gets an answer instead of silence.\n2. **Memory: Learn Error** with `category: mistake, tags: [llm-error, <provider>]` so you spot patterns in your knowledge graph.\n\nNo env var, this branch is always wired. Without it, an OpenAI rate-limit or Anthropic 5xx leaves the customer hanging.\n\nThe error syntax is `{{ $json.error.message }}`, not `$error.message` (which does not exist in n8n) and not `$json.execution.error.message` (which is for separate Error Trigger Workflows, not inline error pins).",
+        "height": 360,
+        "width": 460,
+        "color": 7
+      },
+      "id": "note-error-branch",
+      "name": "Sticky Note - Error Branch",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2960,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// LLM Fallback Reply: fires when OpenAI Reply or Anthropic Reply errors.\n// Builds a graceful customer-facing reply and an error-learn payload that\n// downstream nodes (Telegram Reply, Memory: Learn Error) consume.\n//\n// The error pin from a node with onError=continueErrorOutput delivers\n// $json.error.message (and other error fields). $error.message does not\n// exist as a global in n8n, despite being often quoted online.\n\nconst errorRaw = $input.first().json;\nconst provider = $('Set Provider').item.json.provider ?? 'unknown';\nconst errorMessage = errorRaw?.error?.message\n  ?? errorRaw?.error?.name\n  ?? errorRaw?.message\n  ?? JSON.stringify(errorRaw).slice(0, 200);\n\nconst customerKey = $('Extract Customer Key').item.json.customerKey;\nconst customerLabel = $('Extract Customer Key').item.json.customerLabel;\nconst messageText = $('Extract Customer Key').item.json.messageText;\n\nconst fallbackText = `Sorry, our system is briefly unavailable. We will get back to you within an hour.`;\n\nreturn [{\n  json: {\n    replyText: fallbackText,\n    provider,\n    isFallback: true,\n    errorMessage: String(errorMessage),\n    customerKey,\n    customerLabel,\n    messageText,\n  },\n}];"
+      },
+      "id": "support-7-fallback",
+      "name": "LLM Fallback Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2960,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize LLM output across providers into a single field `replyText`.\n// OpenAI:    $json.choices[0].message.content\n// Anthropic: $json.content[0].text\n\nconst raw = $input.first().json;\nlet replyText = '';\n\nif (raw?.choices?.[0]?.message?.content) {\n  replyText = raw.choices[0].message.content;\n} else if (Array.isArray(raw?.content) && raw.content[0]?.text) {\n  replyText = raw.content[0].text;\n} else if (raw?.message?.content) {\n  replyText = raw.message.content;\n} else if (raw?.text) {\n  replyText = raw.text;\n} else if (raw?.reply) {\n  replyText = raw.reply;\n} else {\n  replyText = '(LLM returned no text, check provider response shape)';\n}\n\nreturn [{\n  json: {\n    replyText: String(replyText).trim(),\n    provider: $('Set Provider').item.json.provider,\n    isFallback: false,\n  },\n}];"
       },
       "id": "mp-normalize",
       "name": "Normalize LLM Output",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2260,
+        2960,
         320
       ]
     },
@@ -350,7 +454,7 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        2480,
+        3200,
         320
       ]
     },
@@ -366,15 +470,15 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        2720,
-        240
+        3440,
+        220
       ]
     },
     {
       "parameters": {
         "resource": "memory",
         "operation": "learn",
-        "content": "=Support interaction with {{ $('Extract Customer Key').item.json.customerLabel }} ({{ $('Extract Customer Key').item.json.customerKey }}): \"{{ $('Extract Customer Key').item.json.messageText.slice(0, 150) }}\" \u2192 Bot resolved with: \"{{ ($json.replyText ?? '').slice(0, 150) }}\"",
+        "content": "=Support interaction with {{ $('Extract Customer Key').item.json.customerLabel }} ({{ $('Extract Customer Key').item.json.customerKey }}): \"{{ $('Extract Customer Key').item.json.messageText.slice(0, 150) }}\" → Bot resolved with: \"{{ ($json.replyText ?? '').slice(0, 150) }}\"",
         "category": "insight",
         "project": "support-bot",
         "tags": "=support, customer-{{ $('Extract Customer Key').item.json.customerKey }}",
@@ -385,29 +489,65 @@
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        2720,
-        400
+        3440,
+        380
       ]
     },
     {
       "parameters": {
-        "content": "## Why entity.open here\n\nFor returning customers we use `entity.open` (not `memory.search`) because we want the **complete dossier**, entity-type, first-seen date, every observation, every relation. That's exactly what an agent needs to feel like a colleague who reviewed the customer's file before saying hello.\n\nFor recency-weighted search across **all** memory (e.g. when the customer asks about a product topic, not their own history), use the Memory: Search operation instead.",
-        "height": 240,
-        "width": 380,
-        "color": 7
+        "resource": "memory",
+        "operation": "learn",
+        "content": "=LLM error in support bot ({{ $json.provider }}): {{ $json.errorMessage }} | Customer: {{ $json.customerLabel }} ({{ $json.customerKey }}) | Question: \"{{ ($json.messageText ?? '').slice(0, 150) }}\"",
+        "category": "mistake",
+        "project": "support-bot",
+        "tags": "=llm-error, {{ $json.provider }}, support-bot",
+        "confidence": 0.6
       },
-      "id": "note-entity-open",
-      "name": "Sticky Note - entity.open",
-      "type": "n8n-nodes-base.stickyNote",
+      "id": "support-11-learn-error",
+      "name": "Memory: Learn Error",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
-        1140,
-        -120
+        3440,
+        580
       ]
     }
   ],
   "connections": {
     "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Verify Webhook (opt-in)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Webhook (opt-in)": {
+      "main": [
+        [
+          {
+            "node": "Rate Limit (opt-in)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limit (opt-in)": {
+      "main": [
+        [
+          {
+            "node": "Idempotency Check (opt-in)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Idempotency Check (opt-in)": {
       "main": [
         [
           {
@@ -491,27 +631,6 @@
         ]
       ]
     },
-    "Normalize LLM Output": {
-      "main": [
-        [
-          {
-            "node": "Telegram Reply",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Memory: Observe Ticket",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Memory: Learn Ticket",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Set Provider": {
       "main": [
         [
@@ -538,6 +657,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "LLM Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -546,6 +672,13 @@
         [
           {
             "node": "Normalize LLM Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LLM Fallback Reply",
             "type": "main",
             "index": 0
           }
@@ -560,11 +693,54 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "LLM Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize LLM Output": {
+      "main": [
+        [
+          {
+            "node": "Telegram Reply",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Memory: Observe Ticket",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Memory: Learn Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Fallback Reply": {
+      "main": [
+        [
+          {
+            "node": "Telegram Reply",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Memory: Learn Error",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     }
   },
-  "active": false,
   "settings": {
     "executionOrder": "v1"
   },
