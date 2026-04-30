@@ -1,0 +1,420 @@
+{
+  "name": "Personal Assistant with Long-Term Memory (StudioMeyer)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Personal Assistant with Long-Term Memory\n\n**Stack:** Telegram → intent classifier → either save-as-note OR memory-aware Q&A → reply.\n\n**Why this is different from a stateless ChatGPT bot:** Everything you tell it is permanently searchable. \"What did I say about the redesign on Monday?\" actually returns the right answer in March, even if Monday was three weeks ago.\n\n**Tool-use extensions (Calendar, Gmail, Notion)** are described in the README and can be added as additional Switch branches without changing the memory loop.",
+        "height": 320,
+        "width": 480,
+        "color": 6
+      },
+      "id": "note-intro",
+      "name": "Sticky Note - Intro",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-260, -60]
+    },
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "pa-1-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 280],
+      "webhookId": "personal-assistant-tg"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Two-step intent classifier:\n// 1. If the message starts with a slash command (/note, /ask, /summary), trust it.\n// 2. Otherwise default to 'ask' — Claude can always reply, but Memory still gets searched first.\n//\n// You can later replace this with a Claude-Haiku classifier for fuzzier intents.\n\nconst body = $input.first().json;\nconst message = body?.message ?? body;\nconst text = (message?.text ?? '').trim();\nconst chatId = message?.chat?.id;\nconst userId = message?.from?.id;\nconst userLabel = message?.from?.username\n  ? `@${message.from.username}`\n  : message?.from?.first_name ?? `user-${userId}`;\n\nlet intent = 'ask';\nlet payload = text;\n\nconst slashMatch = text.match(/^\\/(note|ask|summary)\\s+([\\s\\S]*)$/i);\nif (slashMatch) {\n  intent = slashMatch[1].toLowerCase();\n  payload = slashMatch[2].trim();\n} else if (/^\\/(note|ask|summary)$/i.test(text)) {\n  // Slash command without payload\n  intent = text.slice(1).toLowerCase();\n  payload = '';\n}\n\nreturn [{\n  json: {\n    intent,\n    payload,\n    rawText: text,\n    chatId,\n    userId,\n    userLabel,\n    receivedAt: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "pa-2-intent",
+      "name": "Detect Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 280]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rule-note",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "note",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "note"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rule-summary",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "summary",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "summary"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rule-ask",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "ask",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ask"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "fallback"
+        }
+      },
+      "id": "pa-3-switch",
+      "name": "Route by Intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [680, 280]
+    },
+    {
+      "parameters": {
+        "resource": "memory",
+        "operation": "learn",
+        "content": "={{ $('Detect Intent').item.json.payload }}",
+        "category": "insight",
+        "project": "personal-assistant",
+        "tags": "=note, {{ $('Detect Intent').item.json.userLabel }}",
+        "confidence": 0.85
+      },
+      "id": "pa-4-learn-note",
+      "name": "Memory: Save Note",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [920, 100]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Detect Intent').item.json.chatId }}",
+        "text": "=Saved. (Stored as a learning, searchable any time.)",
+        "additionalFields": {}
+      },
+      "id": "pa-5-reply-note",
+      "name": "Telegram: Note Saved",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1140, 100]
+    },
+    {
+      "parameters": {
+        "resource": "insight",
+        "operation": "synthesize",
+        "query": "={{ $('Detect Intent').item.json.payload || 'recent activity' }}",
+        "category": ""
+      },
+      "id": "pa-6-synthesize",
+      "name": "Memory: Synthesize",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [920, 280]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Detect Intent').item.json.chatId }}",
+        "text": "={{ $json.synthesis ?? $json.summary ?? $json.formatted ?? JSON.stringify($json).slice(0, 3500) }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "pa-7-reply-summary",
+      "name": "Telegram: Summary Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1140, 280]
+    },
+    {
+      "parameters": {
+        "resource": "memory",
+        "operation": "search",
+        "query": "={{ $('Detect Intent').item.json.payload }}",
+        "limit": 8,
+        "project": "personal-assistant",
+        "recencyWeight": 0.5
+      },
+      "id": "pa-8-search",
+      "name": "Memory: Search Context",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [920, 460]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build a context-aware prompt for Claude using whatever memory returned.\n\nconst question = $('Detect Intent').item.json.payload;\nconst userLabel = $('Detect Intent').item.json.userLabel;\n\nconst memData = $input.first().json;\nconst results = memData?.results ?? memData?.data?.results ?? [];\n\nconst contextLines = results.slice(0, 8).map((r, i) => {\n  const text = r.content ?? r.text ?? r.formatted ?? JSON.stringify(r).slice(0, 200);\n  const date = r.date ?? r.createdAt ?? '';\n  return `${i + 1}. [${date}] ${text}`;\n});\n\nconst contextBlock = contextLines.length\n  ? contextLines.join('\\n')\n  : '(no prior context found in memory for this query)';\n\nconst systemPrompt = `You are ${userLabel}'s long-term memory and personal assistant. You have access to everything they've ever told you (notes, decisions, observations).\\n\\nMemory results for the current question:\\n${contextBlock}\\n\\nReply concisely and reference specific past entries when relevant (e.g. \"On March 12 you said...\"). If the memory doesn't have a direct answer, say so honestly and offer to record the question as a note for future reference.`;\n\nreturn [{\n  json: {\n    question,\n    userLabel,\n    contextBlock,\n    systemPrompt,\n    memoryHits: results.length,\n  },\n}];"
+      },
+      "id": "pa-9-prompt",
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 460]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-sonnet-4-6",
+          "mode": "list",
+          "cachedResultName": "claude-sonnet-4-6"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.systemPrompt }}",
+              "role": "system"
+            },
+            {
+              "content": "={{ $json.question }}",
+              "role": "user"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 600,
+          "temperature": 0.4
+        }
+      },
+      "id": "pa-10-claude",
+      "name": "Claude Reply",
+      "type": "n8n-nodes-base.anthropic",
+      "typeVersion": 1,
+      "position": [1380, 460]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Detect Intent').item.json.chatId }}",
+        "text": "={{ $('Claude Reply').item.json.content?.[0]?.text ?? 'I had trouble generating a reply.' }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "pa-11-reply-ask",
+      "name": "Telegram: Q&A Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1620, 460]
+    },
+    {
+      "parameters": {
+        "resource": "memory",
+        "operation": "learn",
+        "content": "=Q: {{ $('Detect Intent').item.json.payload }}\\nA: {{ ($('Claude Reply').item.json.content?.[0]?.text ?? '').slice(0, 400) }}",
+        "category": "insight",
+        "project": "personal-assistant",
+        "tags": "=qa, {{ $('Detect Intent').item.json.userLabel }}",
+        "confidence": 0.65
+      },
+      "id": "pa-12-learn-qa",
+      "name": "Memory: Learn Q&A",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [1840, 560]
+    },
+    {
+      "parameters": {
+        "content": ">> SET ME <<\n\n**Default intent is `ask`** for any text without a slash command.\n\nUsers can also send:\n- `/note <anything>` — store as a learning, no LLM call\n- `/ask <question>` — explicit Q&A path\n- `/summary <topic>` — runs `Memory: Synthesize` for a topic cluster summary\n\nExamples:\n- `/note redesign meeting Monday: agreed on Plan B, push to next sprint`\n- `What did I decide about the redesign?` → searches memory + answers\n- `/summary redesign` → multi-week cluster summary",
+        "height": 320,
+        "width": 380,
+        "color": 5
+      },
+      "id": "note-intents",
+      "name": "Sticky Note - Intents",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [460, -60]
+    },
+    {
+      "parameters": {
+        "content": "## Tool-use extensions (optional)\n\nThis core workflow is intentionally small (~12 nodes). To add Calendar / Gmail / Notion as proper tools the assistant can invoke:\n\n1. Add a `Switch` branch on the intent name (e.g. `calendar_event`, `email`, `notion_page`).\n2. Use n8n's native nodes: Google Calendar (Create), Gmail (Send), Notion (Create Page).\n3. After execution, run `Memory: Learn` so the assistant remembers what it did.\n\nThe READMe walks through one full extension (Google Calendar) end-to-end.",
+        "height": 240,
+        "width": 380,
+        "color": 7
+      },
+      "id": "note-tools",
+      "name": "Sticky Note - Tools",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1380, -120]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Detect Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Intent": {
+      "main": [
+        [
+          {
+            "node": "Route by Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Intent": {
+      "main": [
+        [
+          {
+            "node": "Memory: Save Note",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Memory: Synthesize",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Memory: Search Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Memory: Search Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory: Save Note": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Note Saved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory: Synthesize": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Summary Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory: Search Context": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Prompt": {
+      "main": [
+        [
+          {
+            "node": "Claude Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Reply": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Q&A Reply",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Memory: Learn Q&A",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateId": "studiomeyer-personal-assistant-memory-v1"
+  }
+}

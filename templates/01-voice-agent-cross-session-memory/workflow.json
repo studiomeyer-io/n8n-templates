@@ -1,0 +1,352 @@
+{
+  "name": "Voice Agent Cross-Session Memory (StudioMeyer)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Voice Agent with Cross-Session Memory\n\n**Stack:** Vapi/Retell webhook → StudioMeyer Memory → Claude → reply + persist outcome.\n\n**What you set up:**\n1. Two SET-ME markers (yellow notes below).\n2. StudioMeyer Memory credential (one-time, instance-wide).\n3. Anthropic credential.\n4. Vapi/Retell server URL → this webhook URL.\n\n**Memory model:** Each unique caller phone becomes an `Entity` of type `caller`. Every call appends an observation. The next call retrieves the caller's history before the LLM speaks.",
+        "height": 280,
+        "width": 480,
+        "color": 6
+      },
+      "id": "note-intro",
+      "name": "Sticky Note - Intro",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-260, -40]
+    },
+    {
+      "parameters": {
+        "content": ">> SET ME <<\n\n**Webhook URL** for Vapi/Retell server URL.\n\nAfter activation, copy this node's Production URL into your voice provider's Server URL setting. Vapi sends `end-of-call-report` events here.\n\nFor Retell: use the Webhook trigger payload format mapping in the Code node below.",
+        "height": 200,
+        "width": 320,
+        "color": 5
+      },
+      "id": "note-webhook",
+      "name": "Sticky Note - Webhook",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, -40]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vapi-callback",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "voice-1-webhook",
+      "name": "Vapi/Retell Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 280],
+      "webhookId": "vapi-callback"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize Vapi/Retell payload into a canonical shape\n// Vapi end-of-call-report: $json.message.call.customer.number + transcript\n// Retell call_ended:        $json.call.from_number + transcript\n// Adjust the two extractors below to match YOUR provider.\n\nconst body = $input.first().json;\n\n// --- Vapi shape (default) ---\nlet callerPhone = body?.message?.call?.customer?.number;\nlet transcript = body?.message?.transcript ?? body?.message?.artifact?.transcript;\nlet callId = body?.message?.call?.id;\n\n// --- Retell fallback ---\nif (!callerPhone) callerPhone = body?.call?.from_number;\nif (!transcript) transcript = body?.call?.transcript;\nif (!callId) callId = body?.call?.call_id;\n\nif (!callerPhone) {\n  // Unknown caller (no phone in payload). Still let the agent answer, but\n  // skip the memory lookup. The downstream IF branches on this flag.\n  return [{ json: { callerPhone: null, transcript, callId, hasPhone: false } }];\n}\n\n// E.164-ish normalization: strip spaces, parens, dashes; keep leading +\nconst normalized = String(callerPhone).replace(/[\\s\\(\\)\\-]/g, '');\n\nreturn [{\n  json: {\n    callerPhone: normalized,\n    transcript: transcript ?? '',\n    callId: callId ?? '',\n    hasPhone: true,\n    receivedAt: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "voice-2-normalize",
+      "name": "Normalize Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 280]
+    },
+    {
+      "parameters": {
+        "resource": "entity",
+        "operation": "search",
+        "query": "={{ $json.callerPhone }}",
+        "entityType": "caller",
+        "limit": 1
+      },
+      "id": "voice-3-entity-search",
+      "name": "Memory: Lookup Caller",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [680, 280]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-known-caller",
+              "leftValue": "={{ ($json.entities ?? $json.results ?? []).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "voice-4-if-known",
+      "name": "Known Caller?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [900, 280]
+    },
+    {
+      "parameters": {
+        "resource": "memory",
+        "operation": "search",
+        "query": "=caller {{ $('Normalize Payload').item.json.callerPhone }}",
+        "limit": 5,
+        "project": "voice-agent",
+        "recencyWeight": 0.5
+      },
+      "id": "voice-5a-memory-search",
+      "name": "Memory: Recent Context",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [1140, 160]
+    },
+    {
+      "parameters": {
+        "resource": "entity",
+        "operation": "create",
+        "name": "={{ $('Normalize Payload').item.json.callerPhone }}",
+        "entityType": "caller",
+        "project": "voice-agent",
+        "observations": "=First call on {{ $('Normalize Payload').item.json.receivedAt }}"
+      },
+      "id": "voice-5b-entity-create",
+      "name": "Memory: Create Caller",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [1140, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build a plain-text context block the LLM can read.\n// Both branches converge here; pick whichever has data.\n\nconst transcript = $('Normalize Payload').item.json.transcript || '(no transcript)';\nconst callerPhone = $('Normalize Payload').item.json.callerPhone || 'unknown';\n\n// Pull recent memory results if the caller was known\nlet contextLines = [];\ntry {\n  const memSearch = $('Memory: Recent Context').first()?.json;\n  const results = memSearch?.results ?? memSearch?.data?.results ?? [];\n  contextLines = results.slice(0, 5).map((r, i) => {\n    const text = r.content ?? r.text ?? r.formatted ?? JSON.stringify(r).slice(0, 200);\n    return `${i + 1}. ${text}`;\n  });\n} catch (e) {\n  // First-time caller path — no prior memory to summarize\n  contextLines = ['(this is a new caller — no prior interactions on file)'];\n}\n\nconst contextBlock = contextLines.length\n  ? contextLines.join('\\n')\n  : '(no relevant prior context)';\n\nreturn [{\n  json: {\n    callerPhone,\n    transcript,\n    contextBlock,\n    systemPrompt: `You are a friendly voice agent for a small business.\\n\\nCaller phone: ${callerPhone}\\n\\nWhat we know about this caller from prior calls:\\n${contextBlock}\\n\\nReply concisely (under 60 words) and reference past context when relevant.`,\n  },\n}];"
+      },
+      "id": "voice-6-build-prompt",
+      "name": "Build LLM Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1380, 280]
+    },
+    {
+      "parameters": {
+        "content": ">> SET ME <<\n\n**Anthropic credential** required.\n\nCreate one in Credentials → New → Anthropic API. The key has a free tier; use Claude Haiku 4.5 for sub-second voice latency or Claude Sonnet 4.6 for richer replies.",
+        "height": 200,
+        "width": 320,
+        "color": 5
+      },
+      "id": "note-anthropic",
+      "name": "Sticky Note - Anthropic",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1600, 40]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "claude-haiku-4-5"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.systemPrompt }}",
+              "role": "system"
+            },
+            {
+              "content": "={{ $json.transcript }}",
+              "role": "user"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 200,
+          "temperature": 0.4
+        }
+      },
+      "id": "voice-7-claude",
+      "name": "Claude Reply",
+      "type": "n8n-nodes-base.anthropic",
+      "typeVersion": 1,
+      "position": [1600, 280]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"reply\": \"{{ $json.content?.[0]?.text ?? $json.reply ?? '' }}\",\n  \"caller_phone\": \"{{ $('Normalize Payload').item.json.callerPhone }}\",\n  \"call_id\": \"{{ $('Normalize Payload').item.json.callId }}\"\n}",
+        "options": {}
+      },
+      "id": "voice-8-respond",
+      "name": "Respond to Voice Provider",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1820, 280]
+    },
+    {
+      "parameters": {
+        "resource": "entity",
+        "operation": "observe",
+        "entityRef": "={{ $('Normalize Payload').item.json.callerPhone }}",
+        "observations": "=Call on {{ $('Normalize Payload').item.json.receivedAt }} — Caller said: {{ $('Normalize Payload').item.json.transcript.slice(0, 200) }} | Agent replied: {{ ($('Claude Reply').item.json.content?.[0]?.text ?? '').slice(0, 200) }}"
+      },
+      "id": "voice-9-entity-observe",
+      "name": "Memory: Observe Call",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [2060, 200]
+    },
+    {
+      "parameters": {
+        "resource": "memory",
+        "operation": "learn",
+        "content": "=Voice call with {{ $('Normalize Payload').item.json.callerPhone }} on {{ $('Normalize Payload').item.json.receivedAt }}: {{ $('Claude Reply').item.json.content?.[0]?.text ?? '' }}",
+        "category": "insight",
+        "project": "voice-agent",
+        "tags": "=voice-agent, caller-{{ $('Normalize Payload').item.json.callerPhone }}",
+        "confidence": 0.7
+      },
+      "id": "voice-10-memory-learn",
+      "name": "Memory: Learn Outcome",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [2060, 360]
+    },
+    {
+      "parameters": {
+        "content": "## Async memory writes (after the response)\n\nThese two nodes run **after** the voice provider has already received the reply, so they don't add latency to the call. They fan out from the same trigger.\n\nIf you don't care about per-call observations, delete `Memory: Observe Call` and keep only `Memory: Learn Outcome`.",
+        "height": 220,
+        "width": 380,
+        "color": 7
+      },
+      "id": "note-async-writes",
+      "name": "Sticky Note - Async Writes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [2060, -40]
+    }
+  ],
+  "connections": {
+    "Vapi/Retell Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Payload": {
+      "main": [
+        [
+          {
+            "node": "Memory: Lookup Caller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory: Lookup Caller": {
+      "main": [
+        [
+          {
+            "node": "Known Caller?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Known Caller?": {
+      "main": [
+        [
+          {
+            "node": "Memory: Recent Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Memory: Create Caller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory: Recent Context": {
+      "main": [
+        [
+          {
+            "node": "Build LLM Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory: Create Caller": {
+      "main": [
+        [
+          {
+            "node": "Build LLM Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build LLM Prompt": {
+      "main": [
+        [
+          {
+            "node": "Claude Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Reply": {
+      "main": [
+        [
+          {
+            "node": "Respond to Voice Provider",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Memory: Observe Call",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Memory: Learn Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateId": "studiomeyer-voice-agent-memory-v1"
+  }
+}
