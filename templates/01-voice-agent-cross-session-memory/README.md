@@ -1,12 +1,25 @@
-# Voice Agent with Cross-Session Memory
+# Voice Agent with Cross-Session Memory (Multi-Provider)
 
-> Recognize callers across calls. Reference what they said yesterday. Stop asking returning customers their email three times.
+> Recognize callers across calls. Reference what they said yesterday. Stop asking returning customers their email three times. **Pick your LLM** (OpenAI / Anthropic / extend with any provider).
 
 ## What this does
 
-A voice provider (Vapi, Retell, Bland, or any custom telephony bridge that posts JSON) sends a webhook when a call ends. The workflow looks up the caller's phone in StudioMeyer Memory, retrieves prior interactions, builds a context-aware prompt, and replies through Claude. After the reply is sent, it persists the new observation back to memory.
+A voice provider (Vapi, Retell, Bland, or any custom telephony bridge that posts JSON) sends a webhook when a call ends. The workflow looks up the caller's phone in StudioMeyer Memory, retrieves prior interactions, builds a context-aware prompt, and replies through the LLM **you choose** (default: OpenAI GPT-4o-mini, alternative: Anthropic Claude Haiku 4.5). After the reply is sent, it persists the new observation back to memory.
 
 The result is a voice agent that knows your customer the second time they call. No vector-database setup, no Postgres extension, no manual schema work — just one credential and three minutes to import.
+
+## Multi-Provider Switch
+
+The workflow has a `Set Provider` node followed by a `Route by Provider` switch. Default value is `openai`. Change to `anthropic` (or add your own branch with a third LLM) without rebuilding the rest of the flow. Both branches converge in `Normalize LLM Output` which extracts the reply text from either provider's response shape and feeds it to the response + memory writes.
+
+To add a third provider (e.g. Gemini, Mistral, local Ollama):
+
+1. Open the `Route by Provider` Switch node, add a third rule matching e.g. `provider == "gemini"`.
+2. Drag in the corresponding LLM node (or HTTP Request for self-hosted), connect it to the new switch output.
+3. Connect the new LLM node back to `Normalize LLM Output`.
+4. The Code node already handles common shapes; if the new provider returns something exotic, add one more `else if` branch.
+
+Memory writes stay identical regardless of provider — they pull `replyText` from the normalized output, not from the provider-specific node.
 
 ## Architecture
 
@@ -30,14 +43,22 @@ The result is a voice agent that knows your customer the second time they call. 
 [Build LLM Prompt]                ← injects past context into system prompt
             │
             ▼
-[Claude Reply]                    ← Claude Haiku 4.5 (fast) or Sonnet 4.6
+[Set Provider]                    ← provider = "openai" (default) | "anthropic"
             │
             ▼
-[Respond to Voice Provider]       ← reply text back to Vapi/Retell for TTS
+[Route by Provider]
             │
    ┌────────┴────────┐
-   ▼                 ▼
-[Memory: Observe]   [Memory: Learn]   ← async, no latency impact
+   ▼ openai          ▼ anthropic
+[OpenAI Reply]     [Anthropic Reply]
+   │                  │
+   └────────┬─────────┘
+            ▼
+[Normalize LLM Output]            ← extracts replyText from either shape
+            │
+   ┌────────┼─────────────┐
+   ▼        ▼             ▼
+[Respond]  [Memory: Observe]  [Memory: Learn]   ← async, no latency impact
 ```
 
 ## Memory model
@@ -63,7 +84,7 @@ This three-layer model means you can later run `entity.open` to get a full calle
 
 3. **Import the workflow.** In n8n: top-right menu → *Import from clipboard* → paste `workflow.json` → *Import*.
 
-4. **Add an Anthropic credential** (Credentials → New → Anthropic API). Free tier covers ~50k tokens/month — plenty for testing.
+4. **Add an LLM credential.** Default is OpenAI (Credentials → New → OpenAI API). If you'd rather use Claude, add an Anthropic credential instead and change the `Set Provider` node value from `openai` to `anthropic`. You can have both credentials installed and switch between them by editing one node.
 
 5. **Activate the workflow.** The webhook node now exposes a Production URL of the form `https://your-n8n.example.com/webhook/vapi-callback`.
 
