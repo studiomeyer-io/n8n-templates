@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: StudioMeyer Memory product
+    url: https://memory.studiomeyer.io
+    about: Issues with the hosted Memory backend (auth, API errors, latency).
+  - name: Custom node bugs
+    url: https://github.com/studiomeyer-io/n8n-nodes-studiomeyer-memory/issues
+    about: Bugs in the n8n-nodes-studiomeyer-memory community node itself.
+  - name: Template ideas + workflow suggestions
+    url: https://github.com/studiomeyer-io/n8n-templates/discussions
+    about: Discussion before opening a template-request issue.

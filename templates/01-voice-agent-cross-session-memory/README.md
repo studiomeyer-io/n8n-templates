@@ -1,12 +1,18 @@
+<!-- studiomeyer-mcp-stack-banner:start -->
+> **Part of the [StudioMeyer MCP Stack](https://studiomeyer.io)** · Built in Mallorca · ⭐ if you use it
+<!-- studiomeyer-mcp-stack-banner:end -->
+
 # Voice Agent with Cross-Session Memory (Multi-Provider)
 
-> Recognize callers across calls. Reference what they said yesterday. Stop asking returning customers their email three times. **Pick your LLM** (OpenAI / Anthropic / extend with any provider).
+> Recognize callers across calls. Reference what they said yesterday. Stop asking returning customers their email three times. **Pick your LLM** (OpenAI default, Anthropic alternative, extensible to any provider).
+
+![Cover](./cover.png)
 
 ## What this does
 
 A voice provider (Vapi, Retell, Bland, or any custom telephony bridge that posts JSON) sends a webhook when a call ends. The workflow looks up the caller's phone in StudioMeyer Memory, retrieves prior interactions, builds a context-aware prompt, and replies through the LLM **you choose** (default: OpenAI gpt-5-mini, alternative: Anthropic Claude Haiku 4.5). After the reply is sent, it persists the new observation back to memory.
 
-The result is a voice agent that knows your customer the second time they call. No vector-database setup, no Postgres extension, no manual schema work — just one credential and three minutes to import.
+The result is a voice agent that knows your customer the second time they call. No vector-database setup, no Postgres extension, no manual schema work, just one credential and three minutes to import.
 
 ## Multi-Provider Switch
 
@@ -19,7 +25,7 @@ To add a third provider (e.g. Gemini, Mistral, local Ollama):
 3. Connect the new LLM node back to `Normalize LLM Output`.
 4. The Code node already handles common shapes; if the new provider returns something exotic, add one more `else if` branch.
 
-Memory writes stay identical regardless of provider — they pull `replyText` from the normalized output, not from the provider-specific node.
+Memory writes stay identical regardless of provider, they pull `replyText` from the normalized output, not from the provider-specific node.
 
 ## Architecture
 
@@ -122,9 +128,13 @@ At 1 000 calls/month, expect ~$2/month in LLM + memory cost. The free Memory tie
 
 - **No phone in payload.** Some Vapi setups send `caller=anonymous` or strip the number. The Code node handles this gracefully (`hasPhone: false`) but the IF branch will treat it as a new caller every time. Add a fallback to use the Vapi `call.id` as a synthetic identifier if you need recognition for anonymous callers.
 - **Transcript is empty for short calls.** Vapi sends `end-of-call-report` even for 2-second calls where nothing was said. The IF branch still fires, the LLM still replies (with an empty user message). Either add a guard in `Normalize Payload` to skip when transcript is empty, or accept the noise.
-- **Multiple calls in flight.** n8n's default execution mode is fire-and-forget per webhook trigger. If the same caller calls twice in 30 seconds, both runs will see "0 entities" on the first lookup (race condition). Memory's gatekeeper deduplicates on the entity-create side, so you don't get duplicate `caller` entities — but the second call's "first call" observation is technically wrong. For high-volume use, switch the entity-create branch to `entity.observe` with a fallback that auto-creates the entity if missing (this is a Memory v3.17 feature, currently in private beta).
+- **Multiple calls in flight.** n8n's default execution mode is fire-and-forget per webhook trigger. If the same caller calls twice in 30 seconds, both runs will see "0 entities" on the first lookup (race condition). Memory's gatekeeper deduplicates on the entity-create side, so you don't get duplicate `caller` entities, but the second call's "first call" observation is technically wrong. For high-volume use, switch the entity-create branch to `entity.observe` with a fallback that auto-creates the entity if missing (this is a Memory v3.17 feature, currently in private beta).
 
 ## Related templates
 
-- [02 - AI Customer Support with Customer History](../02-customer-support-with-history/) — same memory pattern for WhatsApp/Telegram
-- [03 - Personal Assistant with Long-Term Memory](../03-personal-assistant-long-term-memory/) — single-user variant with tool use
+- [02 - AI Customer Support with Customer History](../02-customer-support-with-history/) · same memory pattern for chat platforms (Telegram, WhatsApp, Slack)
+- [03 - Personal Assistant with Long-Term Memory](../03-personal-assistant-long-term-memory/) · single-user variant with intent classifier and tool use
+
+---
+
+*Built by [StudioMeyer](https://studiomeyer.io) in Mallorca. Part of the [StudioMeyer MCP Stack](../../README.md). Memory at [memory.studiomeyer.io](https://memory.studiomeyer.io). Issues + ideas at [github.com/studiomeyer-io/n8n-templates/issues](https://github.com/studiomeyer-io/n8n-templates/issues).*

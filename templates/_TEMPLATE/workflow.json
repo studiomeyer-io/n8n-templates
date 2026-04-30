@@ -1,0 +1,72 @@
+{
+  "name": "TEMPLATE — <Replace With Title>",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## <Template Title>\n\n**Stack:** <Trigger> → <middle steps> → <result>.\n\n**Why this exists:** <one paragraph why a builder cares>.\n\n**Pre-requisites:** StudioMeyer Memory community node installed (`npm install n8n-nodes-studiomeyer-memory`), Memory credential configured. Other credentials documented at the SET-ME stickies below.",
+        "height": 280,
+        "width": 480,
+        "color": 6
+      },
+      "id": "skel-note-intro",
+      "name": "Sticky Note - Intro",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-260, -40]
+    },
+    {
+      "parameters": {
+        "content": ">> SET ME <<\n\nReplace this trigger with your actual entry point. Examples: webhook, telegramTrigger, schedule, chat-trigger, queue.",
+        "height": 200,
+        "width": 320,
+        "color": 5
+      },
+      "id": "skel-note-set-me",
+      "name": "Sticky Note - Set Me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, -40]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "REPLACE-ME",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "skel-1-trigger",
+      "name": "Trigger (replace me)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 280],
+      "webhookId": "REPLACE-ME"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Replace with your normalization or extraction logic.\n// This is the canonical place to convert the raw trigger payload into the\n// shape the rest of the workflow uses (customerKey, message, callId, ...).\n\nconst body = $input.first().json;\nreturn [{ json: { receivedAt: new Date().toISOString(), payload: body } }];"
+      },
+      "id": "skel-2-normalize",
+      "name": "Normalize Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 280]
+    }
+  ],
+  "connections": {
+    "Trigger (replace me)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

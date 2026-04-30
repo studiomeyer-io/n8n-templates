@@ -1,10 +1,16 @@
-# AI Customer Support with Customer History
+<!-- studiomeyer-mcp-stack-banner:start -->
+> **Part of the [StudioMeyer MCP Stack](https://studiomeyer.io)** · Built in Mallorca · ⭐ if you use it
+<!-- studiomeyer-mcp-stack-banner:end -->
 
-> Returning customers don't have to start from scratch. The bot greets them by name, references their last ticket, and your human agents take over with the full file.
+# AI Customer Support with Customer History (Multi-Provider)
+
+> Returning customers don't have to start from scratch. The bot greets them by name, references their last ticket, and your human agents take over with the full file. **Pick your LLM** (OpenAI default, Anthropic alternative).
+
+![Cover](./cover.png)
 
 ## What this does
 
-A customer messages your Telegram bot (or WhatsApp Cloud API, or Intercom — the trigger is swappable). The workflow extracts a stable customer key from the message (email if visible, otherwise the Telegram user ID), looks up that customer in StudioMeyer Memory, retrieves their full dossier, and asks Claude to reply with the dossier as system-prompt context.
+A customer messages your Telegram bot (or WhatsApp Cloud API, or Intercom, the trigger is swappable). The workflow extracts a stable customer key from the message (email if visible, otherwise the Telegram user ID), looks up that customer in StudioMeyer Memory, retrieves their full dossier, and asks Claude to reply with the dossier as system-prompt context.
 
 After the reply is sent, two async writes persist the new ticket as an observation on the customer entity and a high-level learning that's searchable across your support corpus.
 
@@ -71,7 +77,7 @@ The dual write (observation + learning) costs you one extra memory op per ticket
 
 5. **Activate** the workflow. Telegram automatically registers the webhook.
 
-6. **Test** by messaging your bot. The first message creates a customer entity. Subsequent messages show the dossier in the LLM prompt — verify by checking the *Build LLM Prompt* node's output after a second message.
+6. **Test** by messaging your bot. The first message creates a customer entity. Subsequent messages show the dossier in the LLM prompt, verify by checking the *Build LLM Prompt* node's output after a second message.
 
 ## Swap Telegram for WhatsApp / Intercom / web chat
 
@@ -80,7 +86,7 @@ Replace two nodes; the middle 8 stay identical:
 | Provider | Trigger node | Reply node |
 |---|---|---|
 | **WhatsApp Cloud API** | WhatsApp Trigger (built-in) | WhatsApp Send Message |
-| **Intercom** | Webhook (manual) — Intercom posts to your URL | HTTP Request to Intercom Conversations API |
+| **Intercom** | Webhook (manual), Intercom posts to your URL | HTTP Request to Intercom Conversations API |
 | **Custom web chat** | Webhook | Respond to Webhook |
 | **Slack** | Slack Trigger | Slack Send Message |
 
@@ -90,7 +96,7 @@ In each case, update the `Extract Customer Key` Code node to read the right fiel
 
 **Hand off to humans on demand.** Add a sentiment-check IF after Claude. If the reply suggests escalation ("I'd recommend speaking with a manager"), post the customer's full dossier into a #support Slack channel with a button that mutes the bot for that customer for 24h.
 
-**Pattern detection.** Add a weekly scheduled workflow that runs `Memory: Synthesize` with `query: "support recent issues"`. The synthesis clusters tickets by topic and posts the top 5 patterns to your team's morning brief — you'll spot recurring product issues that single tickets hide.
+**Pattern detection.** Add a weekly scheduled workflow that runs `Memory: Synthesize` with `query: "support recent issues"`. The synthesis clusters tickets by topic and posts the top 5 patterns to your team's morning brief, you'll spot recurring product issues that single tickets hide.
 
 **Pre-fill CRM contact.** When a new customer entity is created, fan out to the [StudioMeyer CRM](https://crm.studiomeyer.io) MCP server and create a contact with the email + first message. Now your sales team gets a contact record before the bot even finishes replying.
 
@@ -118,5 +124,9 @@ At 5 000 tickets/month → ~$35/month all-in. The free Memory tier covers ~10 00
 
 ## Related templates
 
-- [01 - Voice Agent Cross-Session Memory](../01-voice-agent-cross-session-memory/) — same pattern over telephony
-- [03 - Personal Assistant with Long-Term Memory](../03-personal-assistant-long-term-memory/) — single-user variant with tool use
+- [01 - Voice Agent Cross-Session Memory](../01-voice-agent-cross-session-memory/) · same memory pattern over telephony (Vapi / Retell)
+- [03 - Personal Assistant with Long-Term Memory](../03-personal-assistant-long-term-memory/) · single-user variant with intent classifier and tool use
+
+---
+
+*Built by [StudioMeyer](https://studiomeyer.io) in Mallorca. Part of the [StudioMeyer MCP Stack](../../README.md). Memory at [memory.studiomeyer.io](https://memory.studiomeyer.io). Issues + ideas at [github.com/studiomeyer-io/n8n-templates/issues](https://github.com/studiomeyer-io/n8n-templates/issues).*

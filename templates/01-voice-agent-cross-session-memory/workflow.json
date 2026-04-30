@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Voice Agent with Cross-Session Memory (Multi-Provider)\n\n**Stack:** Vapi/Retell webhook → StudioMeyer Memory → LLM (you choose: OpenAI, Anthropic, or any provider) → reply + persist outcome.\n\n**Multi-Provider Switch:** the `Set Provider` node decides which LLM responds. Default is `openai`. Change to `anthropic` (or add your own branch) without rebuilding the rest of the workflow.\n\n**Memory model:** Each unique caller phone becomes an `Entity` of type `caller`. Every call appends an observation. The next call retrieves the caller's history before the LLM speaks.",
+        "content": "## Voice Agent with Cross-Session Memory (Multi-Provider)\n\n**Stack:** Vapi/Retell webhook \u2192 StudioMeyer Memory \u2192 LLM (you choose: OpenAI, Anthropic, or any provider) \u2192 reply + persist outcome.\n\n**Multi-Provider Switch:** the `Set Provider` node decides which LLM responds. Default is `openai`. Change to `anthropic` (or add your own branch) without rebuilding the rest of the workflow.\n\n**Memory model:** Each unique caller phone becomes an `Entity` of type `caller`. Every call appends an observation. The next call retrieves the caller's history before the LLM speaks.",
         "height": 320,
         "width": 480,
         "color": 6
@@ -12,7 +12,10 @@
       "name": "Sticky Note - Intro",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-260, -40]
+      "position": [
+        -260,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -25,7 +28,10 @@
       "name": "Sticky Note - Webhook",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [240, -40]
+      "position": [
+        240,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -38,7 +44,10 @@
       "name": "Vapi/Retell Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 280],
+      "position": [
+        240,
+        280
+      ],
       "webhookId": "vapi-callback"
     },
     {
@@ -49,7 +58,10 @@
       "name": "Normalize Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 280]
+      "position": [
+        460,
+        280
+      ]
     },
     {
       "parameters": {
@@ -63,7 +75,10 @@
       "name": "Memory: Lookup Caller",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
-      "position": [680, 280]
+      "position": [
+        680,
+        280
+      ]
     },
     {
       "parameters": {
@@ -93,7 +108,10 @@
       "name": "Known Caller?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [900, 280]
+      "position": [
+        900,
+        280
+      ]
     },
     {
       "parameters": {
@@ -108,7 +126,10 @@
       "name": "Memory: Recent Context",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
-      "position": [1140, 160]
+      "position": [
+        1140,
+        160
+      ]
     },
     {
       "parameters": {
@@ -123,17 +144,23 @@
       "name": "Memory: Create Caller",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
-      "position": [1140, 420]
+      "position": [
+        1140,
+        420
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Build a plain-text context block the LLM can read.\n// Both branches converge here; pick whichever has data.\n\nconst transcript = $('Normalize Payload').item.json.transcript || '(no transcript)';\nconst callerPhone = $('Normalize Payload').item.json.callerPhone || 'unknown';\n\n// Pull recent memory results if the caller was known\nlet contextLines = [];\ntry {\n  const memSearch = $('Memory: Recent Context').first()?.json;\n  const results = memSearch?.results ?? memSearch?.data?.results ?? [];\n  contextLines = results.slice(0, 5).map((r, i) => {\n    const text = r.content ?? r.text ?? r.formatted ?? JSON.stringify(r).slice(0, 200);\n    return `${i + 1}. ${text}`;\n  });\n} catch (e) {\n  // First-time caller path — no prior memory to summarize\n  contextLines = ['(this is a new caller — no prior interactions on file)'];\n}\n\nconst contextBlock = contextLines.length\n  ? contextLines.join('\\n')\n  : '(no relevant prior context)';\n\nreturn [{\n  json: {\n    callerPhone,\n    transcript,\n    contextBlock,\n    systemPrompt: `You are a friendly voice agent for a small business.\\n\\nCaller phone: ${callerPhone}\\n\\nWhat we know about this caller from prior calls:\\n${contextBlock}\\n\\nReply concisely (under 60 words) and reference past context when relevant.`,\n  },\n}];"
+        "jsCode": "// Build a plain-text context block the LLM can read.\n// Both branches converge here; pick whichever has data.\n\nconst transcript = $('Normalize Payload').item.json.transcript || '(no transcript)';\nconst callerPhone = $('Normalize Payload').item.json.callerPhone || 'unknown';\n\n// Pull recent memory results if the caller was known\nlet contextLines = [];\ntry {\n  const memSearch = $('Memory: Recent Context').first()?.json;\n  const results = memSearch?.results ?? memSearch?.data?.results ?? [];\n  contextLines = results.slice(0, 5).map((r, i) => {\n    const text = r.content ?? r.text ?? r.formatted ?? JSON.stringify(r).slice(0, 200);\n    return `${i + 1}. ${text}`;\n  });\n} catch (e) {\n  // First-time caller path, no prior memory to summarize\n  contextLines = ['(this is a new caller, no prior interactions on file)'];\n}\n\nconst contextBlock = contextLines.length\n  ? contextLines.join('\\n')\n  : '(no relevant prior context)';\n\nreturn [{\n  json: {\n    callerPhone,\n    transcript,\n    contextBlock,\n    systemPrompt: `You are a friendly voice agent for a small business.\\n\\nCaller phone: ${callerPhone}\\n\\nWhat we know about this caller from prior calls:\\n${contextBlock}\\n\\nReply concisely (under 60 words) and reference past context when relevant.`,\n  },\n}];"
       },
       "id": "voice-6-build-prompt",
       "name": "Build LLM Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1380, 280]
+      "position": [
+        1380,
+        280
+      ]
     },
     {
       "parameters": {
@@ -146,7 +173,10 @@
       "name": "Sticky Note - Provider Switch",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [1600, -100]
+      "position": [
+        1600,
+        -100
+      ]
     },
     {
       "parameters": {
@@ -169,7 +199,10 @@
       "name": "Set Provider",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [1600, 280]
+      "position": [
+        1600,
+        280
+      ]
     },
     {
       "parameters": {
@@ -234,7 +267,10 @@
       "name": "Route by Provider",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [1820, 280]
+      "position": [
+        1820,
+        280
+      ]
     },
     {
       "parameters": {
@@ -268,7 +304,10 @@
       "name": "OpenAI Reply",
       "type": "n8n-nodes-base.openAi",
       "typeVersion": 1.7,
-      "position": [2040, 160]
+      "position": [
+        2040,
+        160
+      ]
     },
     {
       "parameters": {
@@ -299,17 +338,23 @@
       "name": "Anthropic Reply",
       "type": "n8n-nodes-base.anthropic",
       "typeVersion": 1,
-      "position": [2040, 400]
+      "position": [
+        2040,
+        400
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Normalize the LLM output across providers into a single field `replyText`.\n// OpenAI:    $json.choices[0].message.content\n// Anthropic: $json.content[0].text\n// Fallback:  any string-shaped property we can find.\n\nconst raw = $input.first().json;\n\nlet replyText = '';\n\n// OpenAI shape\nif (raw?.choices?.[0]?.message?.content) {\n  replyText = raw.choices[0].message.content;\n}\n// Anthropic shape\nelse if (Array.isArray(raw?.content) && raw.content[0]?.text) {\n  replyText = raw.content[0].text;\n}\n// Some n8n-wrapped variants\nelse if (raw?.message?.content) {\n  replyText = raw.message.content;\n}\nelse if (raw?.text) {\n  replyText = raw.text;\n}\nelse if (raw?.reply) {\n  replyText = raw.reply;\n}\nelse {\n  replyText = '(LLM returned no text — check provider response shape)';\n}\n\nreturn [{\n  json: {\n    replyText: String(replyText).trim(),\n    provider: $('Set Provider').item.json.provider,\n  },\n}];"
+        "jsCode": "// Normalize the LLM output across providers into a single field `replyText`.\n// OpenAI:    $json.choices[0].message.content\n// Anthropic: $json.content[0].text\n// Fallback:  any string-shaped property we can find.\n\nconst raw = $input.first().json;\n\nlet replyText = '';\n\n// OpenAI shape\nif (raw?.choices?.[0]?.message?.content) {\n  replyText = raw.choices[0].message.content;\n}\n// Anthropic shape\nelse if (Array.isArray(raw?.content) && raw.content[0]?.text) {\n  replyText = raw.content[0].text;\n}\n// Some n8n-wrapped variants\nelse if (raw?.message?.content) {\n  replyText = raw.message.content;\n}\nelse if (raw?.text) {\n  replyText = raw.text;\n}\nelse if (raw?.reply) {\n  replyText = raw.reply;\n}\nelse {\n  replyText = '(LLM returned no text, check provider response shape)';\n}\n\nreturn [{\n  json: {\n    replyText: String(replyText).trim(),\n    provider: $('Set Provider').item.json.provider,\n  },\n}];"
       },
       "id": "voice-10-normalize-output",
       "name": "Normalize LLM Output",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2280, 280]
+      "position": [
+        2280,
+        280
+      ]
     },
     {
       "parameters": {
@@ -321,20 +366,26 @@
       "name": "Respond to Voice Provider",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [2500, 280]
+      "position": [
+        2500,
+        280
+      ]
     },
     {
       "parameters": {
         "resource": "entity",
         "operation": "observe",
         "entityRef": "={{ $('Normalize Payload').item.json.callerPhone }}",
-        "observations": "=Call on {{ $('Normalize Payload').item.json.receivedAt }} — Caller said: {{ $('Normalize Payload').item.json.transcript.slice(0, 200) }} | Agent replied ({{ $json.provider }}): {{ $json.replyText.slice(0, 200) }}"
+        "observations": "=Call on {{ $('Normalize Payload').item.json.receivedAt }}, Caller said: {{ $('Normalize Payload').item.json.transcript.slice(0, 200) }} | Agent replied ({{ $json.provider }}): {{ $json.replyText.slice(0, 200) }}"
       },
       "id": "voice-12-entity-observe",
       "name": "Memory: Observe Call",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
-      "position": [2720, 200]
+      "position": [
+        2720,
+        200
+      ]
     },
     {
       "parameters": {
@@ -350,7 +401,10 @@
       "name": "Memory: Learn Outcome",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
-      "position": [2720, 360]
+      "position": [
+        2720,
+        360
+      ]
     },
     {
       "parameters": {
@@ -363,7 +417,10 @@
       "name": "Sticky Note - Async Writes",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [2720, -40]
+      "position": [
+        2720,
+        -40
+      ]
     }
   ],
   "connections": {

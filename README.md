@@ -1,100 +1,206 @@
-# n8n Templates — StudioMeyer Memory
+<!-- studiomeyer-mcp-stack-banner:start -->
+> **Part of the [StudioMeyer MCP Stack](https://studiomeyer.io)**, Built in Mallorca · ⭐ if you use it
+<!-- studiomeyer-mcp-stack-banner:end -->
 
-Production-ready n8n workflow templates that turn StudioMeyer Memory into the long-term memory layer for voice agents, support bots, and personal assistants.
+<div align="center">
 
-> **What is StudioMeyer Memory?** A managed AI memory backend with a knowledge graph, semantic search, entity tracking, and session continuity. Hosted at [memory.studiomeyer.io](https://memory.studiomeyer.io) and accessible from n8n via the official community node [`n8n-nodes-studiomeyer-memory`](https://www.npmjs.com/package/n8n-nodes-studiomeyer-memory).
+# n8n Templates · StudioMeyer Memory
 
-## Why memory matters in n8n
+**Drop-in n8n workflows that turn AI agents from amnesia patients into systems that remember.**
 
-Without persistent memory, every AI interaction starts from zero. Voice agents forget callers. Support bots ask returning customers their email three times. Personal assistants miss the project context you discussed yesterday.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![n8n compatible](https://img.shields.io/badge/n8n-1.50%2B-FF6E5C.svg)](https://n8n.io)
+[![Custom Node](https://img.shields.io/npm/v/n8n-nodes-studiomeyer-memory?label=community%20node&color=blue)](https://www.npmjs.com/package/n8n-nodes-studiomeyer-memory)
+[![Templates](https://img.shields.io/badge/templates-3%20live-brightgreen.svg)](#templates)
+[![Memory backend](https://img.shields.io/badge/memory-studiomeyer.io-d4af37.svg)](https://memory.studiomeyer.io)
+[![CI](https://github.com/studiomeyer-io/n8n-templates/actions/workflows/validate-workflows.yml/badge.svg)](https://github.com/studiomeyer-io/n8n-templates/actions)
 
-These templates fix that. Each one is:
+Voice agents · customer support · personal assistants · cross-session memory · multi-provider LLM
 
-- **Drop-in ready** — import the JSON, fill in two credentials, run.
-- **Memory-first** — the core loop is search → reason → learn, repeated.
-- **Production-aware** — error branches, idempotency keys, rate-limit-friendly.
+[Quick Start](#quick-start) · [Templates](#templates) · [Architecture](#architecture) · [Brand Bibel](./N8N-BRAND-BIBEL.md) · [Ecosystem](./ECOSYSTEM.md) · [Contributing](./CONTRIBUTING.md)
+
+</div>
+
+---
+
+## Why this exists
+
+Without persistent memory every AI interaction starts from zero. Voice agents forget callers. Support bots ask returning customers their email three times. Personal assistants miss the project context you discussed yesterday.
+
+These templates fix that. Each workflow follows the same loop: **search the memory, reason with the context, write the outcome back**. Memory is provided by [StudioMeyer Memory](https://memory.studiomeyer.io), a hosted MCP backend with a knowledge graph, semantic search, and multi-tenant isolation. Free tier covers about 10 000 operations per month.
+
+Each template is multi-provider out of the box. Pick OpenAI (default `gpt-5-mini`) or Anthropic (`claude-haiku-4-5`) with one click. Add a third branch for Gemini or local Ollama by adding one Switch rule. Memory writes stay identical regardless of which LLM you picked.
+
+## Quick Start
+
+```bash
+# 1. Clone or fetch a single workflow
+git clone https://github.com/studiomeyer-io/n8n-templates.git
+
+# 2. In your n8n instance, install the StudioMeyer Memory community node
+npm install n8n-nodes-studiomeyer-memory
+# (or via UI: Settings → Community Nodes → Install: n8n-nodes-studiomeyer-memory)
+
+# 3. Get a free API key
+open https://memory.studiomeyer.io/dashboard/keys
+
+# 4. Pick a template, copy its workflow.json, import into n8n, fill the SET-ME markers, activate.
+```
+
+Detailed walkthrough per template lives inside each `templates/NN-slug/README.md`.
 
 ## Templates
 
-### Tier 1 — Maximum ROI
+### Tier 1 · Maximum ROI · Live
 
-| # | Template | Stack | Best for |
-|---|---|---|---|
-| 1 | [Voice Agent Cross-Session Memory](./templates/01-voice-agent-cross-session-memory/) | Vapi/Retell webhook → Memory.search → Claude → Memory.learn | Voice-AI builders. Caller is recognized across calls. |
-| 2 | [AI Customer Support with Customer History](./templates/02-customer-support-with-history/) | WhatsApp / Telegram → Memory.entity-search → Claude → Memory.learn | Mid-market + agencies running customer-facing bots. |
-| 3 | [Personal Assistant with Long-Term Memory](./templates/03-personal-assistant-long-term-memory/) | Telegram → Memory.search → Tool-Use Agent (Calendar, Gmail, Notion) → Memory.learn | Indie hackers + solo founders. |
+| # | Template | Trigger | Memory pattern | LLM |
+|---|---|---|---|---|
+| 1 | [Voice Agent Cross-Session Memory](./templates/01-voice-agent-cross-session-memory/) | Vapi / Retell webhook | entity.search → entity.observe | Multi-provider |
+| 2 | [AI Customer Support with History](./templates/02-customer-support-with-history/) | Telegram (swappable for WhatsApp / Slack) | entity.search → entity.open dossier | Multi-provider |
+| 3 | [Personal Assistant Long-Term Memory](./templates/03-personal-assistant-long-term-memory/) | Telegram with intent classifier | memory.search → memory.synthesize | Multi-provider |
 
-### Tier 2 — Reference cases (coming soon)
+### Tier 2 · Reference cases · Coming next
 
-- Restaurant Stammgast Bot (Telegram + entity tracking) — backed by [MenuFlow](https://menuflow.studiomeyer.io)
-- Tourist Bot with Repeat-Visitor Recognition — backed by [MallorcaBot](https://mallorcabot.de)
-- Lead Qualifier with Conversation Memory — Cross-sell to [StudioMeyer CRM](https://crm.studiomeyer.io)
+- **Restaurant Stammgast Bot**, Telegram + entity tracking, backed by [MenuFlow](https://menuflow.studiomeyer.io) as a live reference deployment.
+- **Tourist Bot with Repeat-Visitor Recognition**, Web chat + session memory, backed by [MallorcaBot](https://mallorcabot.de).
+- **Lead Qualifier with Conversation Memory**, Form trigger + BANT discovery, cross-sell to [StudioMeyer CRM](https://crm.studiomeyer.io).
 
-### Tier 3 — Niche differentiators (coming soon)
+### Tier 3 · Niche differentiators · Backlog
 
-- Meeting Bot with Context Continuity (Otter / Fathom)
-- AI-Agent Memory Migration (Mem0 / Zep → StudioMeyer)
+- **Meeting Bot with Context Continuity**, Otter / Fathom transcripts, multi-meeting synthesis.
+- **Mem0 / Zep migration tool**, bulk-import existing memory backends into StudioMeyer Memory.
+
+See [`N8N-BRAND-BIBEL.md`](./N8N-BRAND-BIBEL.md) for the full quality bar every template hits before merge.
+
+## Architecture
+
+The shared backbone across every template:
+
+```
+[Trigger]
+    │
+    ▼
+[Normalize Payload]              ← code node parses the provider-specific shape
+    │
+    ▼
+[Memory: Lookup]                 ← entity.search / memory.search depending on use case
+    │
+    ▼
+   ┌──┤ Decision (existing?) ├──┐
+   ▼ yes                      no ▼
+[Memory: Read context]      [Memory: Create entity]
+   │                           │
+   └────────────┬──────────────┘
+                ▼
+[Build Prompt]                   ← injects retrieved context into the LLM system prompt
+                │
+                ▼
+[Set Provider] → [Route] ─┬─ [OpenAI] ─┐
+                          └─ [Anthropic] ─┘
+                                    ▼
+                          [Normalize LLM Output]
+                                    ▼
+                ┌─────────────┼─────────────┐
+                ▼             ▼             ▼
+        [Reply to user]  [Memory: Observe]  [Memory: Learn]
+```
+
+The Memory operations on the left are provided by the [n8n-nodes-studiomeyer-memory](https://github.com/studiomeyer-io/n8n-nodes-studiomeyer-memory) community node. Sixteen operations across four resources (Memory, Entity, Session, Insight). Same auth, same tenant scope, free tier covers all of Tier 1 for a small business.
+
+The LLM branches converge into a single Code node that extracts `replyText` from either provider's response shape. The downstream nodes (reply + memory writes) never know which LLM answered.
 
 ## Prerequisites
 
 Every template needs:
 
-1. **n8n instance** ≥ 1.50 (Cloud, self-hosted, or Docker — all fine).
-2. **StudioMeyer Memory community node** installed:
-   ```bash
-   # On self-hosted n8n
-   npm install n8n-nodes-studiomeyer-memory
-   # Or on n8n Cloud / hosted: Settings → Community Nodes → Install
-   #   Package name: n8n-nodes-studiomeyer-memory
-   ```
-3. **API key** from [memory.studiomeyer.io/dashboard/keys](https://memory.studiomeyer.io/dashboard/keys). The free tier covers ~10k operations/month, enough to run all three Tier 1 workflows for a small business.
-4. **Credential setup in n8n** — once per instance:
-   - Credentials → New → search "StudioMeyer Memory API"
-   - Auth Mode: API Key
-   - API Key: paste your key
-   - Save. Test should return `OK`.
-
-## How to import a template
-
-1. Open the template folder in this repo (e.g. `templates/01-voice-agent-cross-session-memory/`).
-2. Open `workflow.json`. Copy the entire contents.
-3. In n8n: top-right menu → Import from clipboard → paste → Import.
-4. Open the imported workflow. The yellow **`>>` SET ME` <<`** notes mark every place you need to plug in your own webhook URLs, API keys, or model choice.
-5. Activate the workflow when ready.
-
-Each template ships with its own README that explains the data flow, the memory keys used, and how to extend it.
+1. **n8n instance** at version 1.50 or higher (Cloud, self-hosted, or Docker).
+2. **The community node** installed: `npm install n8n-nodes-studiomeyer-memory` for self-hosted, or via *Settings → Community Nodes* on n8n Cloud.
+3. **A free API key** from [memory.studiomeyer.io/dashboard/keys](https://memory.studiomeyer.io/dashboard/keys). Add as credential `StudioMeyer Memory API`.
+4. **An LLM credential** in n8n. OpenAI (default for these templates) or Anthropic. Free tiers from both providers cover the Tier 1 workloads.
+5. **Provider-specific credentials** if your trigger needs them: Telegram bot token, Vapi / Retell webhook URL, etc. Documented per template.
 
 ## Repo structure
 
 ```
 n8n-templates/
-├── README.md                  # this file
-├── LICENSE                    # MIT
-├── CONTRIBUTING.md            # how to add a new template
+├── README.md                       # this file
+├── N8N-BRAND-BIBEL.md               # internal style guide for tone, structure, branding
+├── ECOSYSTEM.md                    # the rest of the StudioMeyer toolkit
+├── CHANGELOG.md
+├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md
+├── SECURITY.md
+├── LICENSE                         # MIT
+├── .github/
+│   ├── FUNDING.yml
+│   ├── ISSUE_TEMPLATE/             # bug + template-request
+│   ├── PULL_REQUEST_TEMPLATE.md
+│   └── workflows/                  # CI: workflow validation, em-dash guard
 └── templates/
+    ├── _TEMPLATE/                  # skeleton for new contributions
     ├── 01-voice-agent-cross-session-memory/
-    │   ├── workflow.json      # importable n8n workflow
-    │   ├── README.md          # what it does, how to set up, how to extend
-    │   └── cover.md           # cover-image spec for n8n.io submission
+    │   ├── workflow.json
+    │   ├── README.md
+    │   ├── cover.md                # cover image spec
+    │   └── cover.png               # 1200x630 cover
     ├── 02-customer-support-with-history/
     └── 03-personal-assistant-long-term-memory/
 ```
 
+Each template folder is self-contained. Copy any one of them out of this repo and it still works.
+
+## How to import a template
+
+1. Open the template folder in this repo (for example `templates/01-voice-agent-cross-session-memory/`).
+2. Open `workflow.json`. Copy the full contents.
+3. In n8n: top-right menu → *Import from clipboard* → paste → *Import*.
+4. Open the imported workflow. Yellow sticky notes marked **`>> SET ME <<`** flag every spot you need to configure (webhook URLs, API keys, provider names).
+5. Activate when the markers are filled.
+
+The per-template README explains data flow, memory keys, and extension recipes.
+
+## Brand Bibel + Quality Gate
+
+Every template in this repo is held against the rules in [`N8N-BRAND-BIBEL.md`](./N8N-BRAND-BIBEL.md):
+
+- 12 mandatory README sections (intro, data flow, architecture diagram, memory model table, setup, multi-provider, extending, cost, gotchas, related templates, footer)
+- Multi-provider LLM switch when an LLM call is involved
+- No em-dashes (LLM-content signature, downranked by indexers)
+- No real credentials in the committed `workflow.json`
+- A live n8n smoke test before merge
+- A Flux-generated cover image (`cover.png`)
+- A 3-agent code review (analyst + critic + research) on substantial changes
+
+CI enforces the structural pieces. The brand bibel covers the editorial pieces.
+
 ## Versioning
 
-Each template's `workflow.json` is pinned to the n8n schema version it was authored against (visible in the file's `meta.templateCredsSetupCompleted` and node `typeVersion` fields). We test against the latest stable n8n release and update templates when n8n introduces breaking node-API changes.
+Repo follows [Semantic Versioning](https://semver.org/). PATCH for bug fixes in templates. MINOR for new templates or feature additions. MAJOR for breaking changes (renamed nodes, removed parameters, changed memory schema).
+
+Tags are pushed for every MINOR and MAJOR release. See [CHANGELOG.md](./CHANGELOG.md).
 
 ## Contributing
 
-We welcome new templates that solve a real workflow problem with memory at the center. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the structure we expect and the review checklist.
+We welcome new templates that solve a real workflow problem. The process:
 
-## Related
+1. Read [`N8N-BRAND-BIBEL.md`](./N8N-BRAND-BIBEL.md) for the bar.
+2. Open a [template request issue](https://github.com/studiomeyer-io/n8n-templates/issues/new?template=template_request.md) so we can confirm scope before you build.
+3. Copy `templates/_TEMPLATE/` to a new folder, fill it in, smoke-test in your own n8n instance, open a PR.
+
+The PR template includes the brand-bibel checklist. Reviewers verify structure first, content second.
+
+## Related projects
 
 - **Custom node source:** [github.com/studiomeyer-io/n8n-nodes-studiomeyer-memory](https://github.com/studiomeyer-io/n8n-nodes-studiomeyer-memory)
-- **Memory product page:** [studiomeyer.io/services/memory](https://studiomeyer.io/services/memory)
-- **Memory live demo:** [studiomeyer.io/services/memory/demo](https://studiomeyer.io/services/memory/demo)
-- **Long-form tutorials:** [studiomeyer.io/blog](https://studiomeyer.io/blog) (filter: n8n)
+- **Memory product:** [memory.studiomeyer.io](https://memory.studiomeyer.io) · [marketing page](https://studiomeyer.io/services/memory)
+- **Memory live demo:** [studiomeyer.io/services/memory/demo](https://studiomeyer.io/services/memory/demo) (interactive 3D knowledge graph)
+- **Long-form tutorials:** [studiomeyer.io/blog](https://studiomeyer.io/blog) (filter: `n8n`)
+- **Full ecosystem:** [ECOSYSTEM.md](./ECOSYSTEM.md)
 
 ## License
 
-MIT — see [LICENSE](./LICENSE). Use these templates anywhere, including commercial deployments. Attribution appreciated but not required.
+MIT, see [LICENSE](./LICENSE). Use these templates anywhere, including commercial deployments. Attribution appreciated, not required.
+
+---
+
+*Built by [StudioMeyer](https://studiomeyer.io) in Mallorca. Memory at [memory.studiomeyer.io](https://memory.studiomeyer.io). Issues + ideas at [github.com/studiomeyer-io/n8n-templates/issues](https://github.com/studiomeyer-io/n8n-templates/issues). The reason a search query like "n8n voice agent memory" surfaces this repo is the work in [N8N-BRAND-BIBEL.md](./N8N-BRAND-BIBEL.md), not luck.*

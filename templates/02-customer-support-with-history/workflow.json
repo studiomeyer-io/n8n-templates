@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## AI Customer Support Bot\n\n**Stack:** Telegram (or WhatsApp / web chat) → StudioMeyer Memory entity lookup → Claude with customer dossier → reply → persist outcome.\n\n**Why this beats a stateless bot:** Returning customers don't have to re-explain who they are. The bot greets them by name, references past tickets, and the agent that takes over has full history one click away.\n\n**To swap Telegram for WhatsApp:** replace the trigger node with a WhatsApp Trigger and the reply node with WhatsApp Send Message. The middle stays identical.",
+        "content": "## AI Customer Support Bot\n\n**Stack:** Telegram (or WhatsApp / web chat) \u2192 StudioMeyer Memory entity lookup \u2192 Claude with customer dossier \u2192 reply \u2192 persist outcome.\n\n**Why this beats a stateless bot:** Returning customers don't have to re-explain who they are. The bot greets them by name, references past tickets, and the agent that takes over has full history one click away.\n\n**To swap Telegram for WhatsApp:** replace the trigger node with a WhatsApp Trigger and the reply node with WhatsApp Send Message. The middle stays identical.",
         "height": 320,
         "width": 480,
         "color": 6
@@ -12,11 +12,14 @@
       "name": "Sticky Note - Intro",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-260, -60]
+      "position": [
+        -260,
+        -60
+      ]
     },
     {
       "parameters": {
-        "content": ">> SET ME <<\n\n**Telegram Bot credential** required.\n\n1. Talk to @BotFather, create a bot, get the token.\n2. n8n Credentials → New → Telegram → paste token.\n3. After activation, message your bot once and check this node's incoming-data view.",
+        "content": ">> SET ME <<\n\n**Telegram Bot credential** required.\n\n1. Talk to @BotFather, create a bot, get the token.\n2. n8n Credentials \u2192 New \u2192 Telegram \u2192 paste token.\n3. After activation, message your bot once and check this node's incoming-data view.",
         "height": 220,
         "width": 320,
         "color": 5
@@ -25,29 +28,40 @@
       "name": "Sticky Note - Telegram",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [240, -60]
+      "position": [
+        240,
+        -60
+      ]
     },
     {
       "parameters": {
-        "updates": ["message"],
+        "updates": [
+          "message"
+        ],
         "additionalFields": {}
       },
       "id": "support-1-trigger",
       "name": "Telegram Trigger",
       "type": "n8n-nodes-base.telegramTrigger",
       "typeVersion": 1.1,
-      "position": [240, 320],
+      "position": [
+        240,
+        320
+      ],
       "webhookId": "support-telegram"
     },
     {
       "parameters": {
-        "jsCode": "// Extract a stable customer key from the inbound Telegram message.\n// Strategy: prefer an email if the message text contains one, otherwise\n// fall back to the Telegram user ID + username.\n\nconst body = $input.first().json;\nconst message = body?.message ?? body;\nconst text = message?.text ?? '';\nconst tgUserId = message?.from?.id;\nconst tgUsername = message?.from?.username;\nconst tgFirstName = message?.from?.first_name ?? '';\nconst chatId = message?.chat?.id;\n\n// Email regex — RFC-5322-ish but conservative\nconst emailRe = /[\\w!#$%&'*+/=?^_`{|}~.-]+@[\\w.-]+\\.[a-zA-Z]{2,}/;\nconst emailMatch = text.match(emailRe);\nconst customerEmail = emailMatch ? emailMatch[0].toLowerCase() : null;\n\n// Customer key: email if found, else stable Telegram ID\nconst customerKey = customerEmail ?? `tg:${tgUserId}`;\nconst customerLabel = customerEmail ?? (tgUsername ? `@${tgUsername}` : tgFirstName);\n\nreturn [{\n  json: {\n    customerKey,\n    customerEmail,\n    customerLabel,\n    tgUserId,\n    tgUsername,\n    tgFirstName,\n    chatId,\n    messageText: text,\n    receivedAt: new Date().toISOString(),\n  },\n}];"
+        "jsCode": "// Extract a stable customer key from the inbound Telegram message.\n// Strategy: prefer an email if the message text contains one, otherwise\n// fall back to the Telegram user ID + username.\n\nconst body = $input.first().json;\nconst message = body?.message ?? body;\nconst text = message?.text ?? '';\nconst tgUserId = message?.from?.id;\nconst tgUsername = message?.from?.username;\nconst tgFirstName = message?.from?.first_name ?? '';\nconst chatId = message?.chat?.id;\n\n// Email regex, RFC-5322-ish but conservative\nconst emailRe = /[\\w!#$%&'*+/=?^_`{|}~.-]+@[\\w.-]+\\.[a-zA-Z]{2,}/;\nconst emailMatch = text.match(emailRe);\nconst customerEmail = emailMatch ? emailMatch[0].toLowerCase() : null;\n\n// Customer key: email if found, else stable Telegram ID\nconst customerKey = customerEmail ?? `tg:${tgUserId}`;\nconst customerLabel = customerEmail ?? (tgUsername ? `@${tgUsername}` : tgFirstName);\n\nreturn [{\n  json: {\n    customerKey,\n    customerEmail,\n    customerLabel,\n    tgUserId,\n    tgUsername,\n    tgFirstName,\n    chatId,\n    messageText: text,\n    receivedAt: new Date().toISOString(),\n  },\n}];"
       },
       "id": "support-2-extract",
       "name": "Extract Customer Key",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 320]
+      "position": [
+        460,
+        320
+      ]
     },
     {
       "parameters": {
@@ -61,7 +75,10 @@
       "name": "Memory: Lookup Customer",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
-      "position": [680, 320]
+      "position": [
+        680,
+        320
+      ]
     },
     {
       "parameters": {
@@ -91,7 +108,10 @@
       "name": "Known Customer?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [900, 320]
+      "position": [
+        900,
+        320
+      ]
     },
     {
       "parameters": {
@@ -103,7 +123,10 @@
       "name": "Memory: Customer Dossier",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
-      "position": [1140, 200]
+      "position": [
+        1140,
+        200
+      ]
     },
     {
       "parameters": {
@@ -118,17 +141,154 @@
       "name": "Memory: Create Customer",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
-      "position": [1140, 460]
+      "position": [
+        1140,
+        460
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Build a structured dossier the LLM can use as background.\n\nconst custKey = $('Extract Customer Key').item.json.customerKey;\nconst custLabel = $('Extract Customer Key').item.json.customerLabel || '(unknown)';\nconst messageText = $('Extract Customer Key').item.json.messageText;\n\n// If known customer: pull observations from entity.open\nlet observations = [];\nlet entityType = 'customer';\nlet firstSeen = null;\ntry {\n  const dossier = $('Memory: Customer Dossier').first()?.json;\n  const entity = dossier?.entity ?? dossier?.data ?? dossier;\n  observations = entity?.observations ?? [];\n  entityType = entity?.entityType ?? 'customer';\n  firstSeen = entity?.createdAt ?? entity?.validFrom;\n} catch (e) {\n  // First-time customer — no dossier yet\n}\n\nconst obsList = observations.length\n  ? observations.slice(-10).map((o, i) => {\n      const content = o.content ?? o.text ?? JSON.stringify(o).slice(0, 200);\n      const at = o.createdAt ?? o.observedAt ?? '';\n      return `${i + 1}. [${at}] ${content}`;\n    }).join('\\n')\n  : '(this is a new customer — no prior tickets on file)';\n\nconst systemPrompt = `You are a friendly support agent for our company.\\n\\nCustomer: ${custLabel}\\nFirst contact: ${firstSeen ?? 'today'}\\nPrior interactions (most recent first):\\n${obsList}\\n\\nReply concisely. Reference past tickets when it adds value (\"I see this is your second time asking about X — let me get to the bottom of it.\"). If the question is unclear, ask one clarifying question. If the issue is technical and beyond a one-line answer, offer to escalate to a human and tell the user that you'll log the ticket.`;\n\nreturn [{\n  json: {\n    customerKey: custKey,\n    customerLabel: custLabel,\n    messageText,\n    systemPrompt,\n    observationCount: observations.length,\n  },\n}];"
+        "jsCode": "// Build a structured dossier the LLM can use as background.\n\nconst custKey = $('Extract Customer Key').item.json.customerKey;\nconst custLabel = $('Extract Customer Key').item.json.customerLabel || '(unknown)';\nconst messageText = $('Extract Customer Key').item.json.messageText;\n\n// If known customer: pull observations from entity.open\nlet observations = [];\nlet entityType = 'customer';\nlet firstSeen = null;\ntry {\n  const dossier = $('Memory: Customer Dossier').first()?.json;\n  const entity = dossier?.entity ?? dossier?.data ?? dossier;\n  observations = entity?.observations ?? [];\n  entityType = entity?.entityType ?? 'customer';\n  firstSeen = entity?.createdAt ?? entity?.validFrom;\n} catch (e) {\n  // First-time customer, no dossier yet\n}\n\nconst obsList = observations.length\n  ? observations.slice(-10).map((o, i) => {\n      const content = o.content ?? o.text ?? JSON.stringify(o).slice(0, 200);\n      const at = o.createdAt ?? o.observedAt ?? '';\n      return `${i + 1}. [${at}] ${content}`;\n    }).join('\\n')\n  : '(this is a new customer, no prior tickets on file)';\n\nconst systemPrompt = `You are a friendly support agent for our company.\\n\\nCustomer: ${custLabel}\\nFirst contact: ${firstSeen ?? 'today'}\\nPrior interactions (most recent first):\\n${obsList}\\n\\nReply concisely. Reference past tickets when it adds value (\"I see this is your second time asking about X, let me get to the bottom of it.\"). If the question is unclear, ask one clarifying question. If the issue is technical and beyond a one-line answer, offer to escalate to a human and tell the user that you'll log the ticket.`;\n\nreturn [{\n  json: {\n    customerKey: custKey,\n    customerLabel: custLabel,\n    messageText,\n    systemPrompt,\n    observationCount: observations.length,\n  },\n}];"
       },
       "id": "support-6-prompt",
       "name": "Build LLM Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1380, 320]
+      "position": [
+        1380,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-provider",
+              "name": "provider",
+              "value": "openai",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "mp-set-provider",
+      "name": "Set Provider",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1600,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rule-openai",
+                    "leftValue": "={{ $json.provider }}",
+                    "rightValue": "openai",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "openai"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rule-anthropic",
+                    "leftValue": "={{ $json.provider }}",
+                    "rightValue": "anthropic",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "anthropic"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "fallback"
+        }
+      },
+      "id": "mp-route",
+      "name": "Route by Provider",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1820,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-5-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-5-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.systemPrompt }}",
+              "role": "system"
+            },
+            {
+              "content": "={{ $json.messageText ?? $json.transcript ?? $json.payload }}",
+              "role": "user"
+            }
+          ]
+        },
+        "jsonOutput": false,
+        "options": {
+          "maxTokens": 400,
+          "temperature": 0.5
+        }
+      },
+      "id": "mp-openai",
+      "name": "OpenAI Reply",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.7,
+      "position": [
+        2040,
+        200
+      ]
     },
     {
       "parameters": {
@@ -155,16 +315,32 @@
           "temperature": 0.5
         }
       },
-      "id": "support-7-claude",
-      "name": "Claude Reply",
+      "id": "mp-anthropic",
+      "name": "Anthropic Reply",
       "type": "n8n-nodes-base.anthropic",
       "typeVersion": 1,
-      "position": [1600, 320]
+      "position": [
+        2040,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize LLM output across providers into a single field `replyText`.\n// OpenAI:    $json.choices[0].message.content\n// Anthropic: $json.content[0].text\n\nconst raw = $input.first().json;\nlet replyText = '';\n\nif (raw?.choices?.[0]?.message?.content) {\n  replyText = raw.choices[0].message.content;\n} else if (Array.isArray(raw?.content) && raw.content[0]?.text) {\n  replyText = raw.content[0].text;\n} else if (raw?.message?.content) {\n  replyText = raw.message.content;\n} else if (raw?.text) {\n  replyText = raw.text;\n} else if (raw?.reply) {\n  replyText = raw.reply;\n} else {\n  replyText = '(LLM returned no text, check provider response shape)';\n}\n\nreturn [{\n  json: {\n    replyText: String(replyText).trim(),\n    provider: $('Set Provider').item.json.provider,\n  },\n}];"
+      },
+      "id": "mp-normalize",
+      "name": "Normalize LLM Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2260,
+        320
+      ]
     },
     {
       "parameters": {
         "chatId": "={{ $('Extract Customer Key').item.json.chatId }}",
-        "text": "={{ $('Claude Reply').item.json.content?.[0]?.text ?? 'Sorry, I had trouble generating a reply. A human will be in touch shortly.' }}",
+        "text": "={{ $json.replyText ?? 'Sorry, I had trouble generating a reply. A human will be in touch shortly.' }}",
         "additionalFields": {
           "parse_mode": "Markdown"
         }
@@ -173,26 +349,32 @@
       "name": "Telegram Reply",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1820, 320]
+      "position": [
+        2480,
+        320
+      ]
     },
     {
       "parameters": {
         "resource": "entity",
         "operation": "observe",
         "entityRef": "={{ $('Extract Customer Key').item.json.customerKey }}",
-        "observations": "=Ticket on {{ $('Extract Customer Key').item.json.receivedAt }} — Customer: {{ $('Extract Customer Key').item.json.messageText.slice(0, 200) }} | Bot reply: {{ ($('Claude Reply').item.json.content?.[0]?.text ?? '').slice(0, 200) }}"
+        "observations": "=Ticket on {{ $('Extract Customer Key').item.json.receivedAt }}, Customer: {{ $('Extract Customer Key').item.json.messageText.slice(0, 200) }} | Bot reply: {{ ($json.replyText ?? '').slice(0, 200) }}"
       },
       "id": "support-9-observe",
       "name": "Memory: Observe Ticket",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
-      "position": [2060, 240]
+      "position": [
+        2720,
+        240
+      ]
     },
     {
       "parameters": {
         "resource": "memory",
         "operation": "learn",
-        "content": "=Support interaction with {{ $('Extract Customer Key').item.json.customerLabel }} ({{ $('Extract Customer Key').item.json.customerKey }}): \"{{ $('Extract Customer Key').item.json.messageText.slice(0, 150) }}\" → Bot resolved with: \"{{ ($('Claude Reply').item.json.content?.[0]?.text ?? '').slice(0, 150) }}\"",
+        "content": "=Support interaction with {{ $('Extract Customer Key').item.json.customerLabel }} ({{ $('Extract Customer Key').item.json.customerKey }}): \"{{ $('Extract Customer Key').item.json.messageText.slice(0, 150) }}\" \u2192 Bot resolved with: \"{{ ($json.replyText ?? '').slice(0, 150) }}\"",
         "category": "insight",
         "project": "support-bot",
         "tags": "=support, customer-{{ $('Extract Customer Key').item.json.customerKey }}",
@@ -202,11 +384,14 @@
       "name": "Memory: Learn Ticket",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
-      "position": [2060, 400]
+      "position": [
+        2720,
+        400
+      ]
     },
     {
       "parameters": {
-        "content": "## Why entity.open here\n\nFor returning customers we use `entity.open` (not `memory.search`) because we want the **complete dossier** — entity-type, first-seen date, every observation, every relation. That's exactly what an agent needs to feel like a colleague who reviewed the customer's file before saying hello.\n\nFor recency-weighted search across **all** memory (e.g. when the customer asks about a product topic, not their own history), use the Memory: Search operation instead.",
+        "content": "## Why entity.open here\n\nFor returning customers we use `entity.open` (not `memory.search`) because we want the **complete dossier**, entity-type, first-seen date, every observation, every relation. That's exactly what an agent needs to feel like a colleague who reviewed the customer's file before saying hello.\n\nFor recency-weighted search across **all** memory (e.g. when the customer asks about a product topic, not their own history), use the Memory: Search operation instead.",
         "height": 240,
         "width": 380,
         "color": 7
@@ -215,7 +400,10 @@
       "name": "Sticky Note - entity.open",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [1140, -120]
+      "position": [
+        1140,
+        -120
+      ]
     }
   ],
   "connections": {
@@ -296,14 +484,14 @@
       "main": [
         [
           {
-            "node": "Claude Reply",
+            "node": "Set Provider",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Claude Reply": {
+    "Normalize LLM Output": {
       "main": [
         [
           {
@@ -318,6 +506,57 @@
           },
           {
             "node": "Memory: Learn Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Provider": {
+      "main": [
+        [
+          {
+            "node": "Route by Provider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Provider": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Anthropic Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Reply": {
+      "main": [
+        [
+          {
+            "node": "Normalize LLM Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Reply": {
+      "main": [
+        [
+          {
+            "node": "Normalize LLM Output",
             "type": "main",
             "index": 0
           }

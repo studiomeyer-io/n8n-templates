@@ -1,0 +1,87 @@
+name: Validate Workflows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'templates/**/*.json'
+      - '.github/workflows/validate-workflows.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'templates/**/*.json'
+
+jobs:
+  validate:
+    name: Validate workflow.json files
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate every workflow.json
+        run: |
+          set -e
+          fail=0
+          for wf in templates/*/workflow.json; do
+            # Skip the skeleton template
+            case "$wf" in
+              templates/_TEMPLATE/*) continue ;;
+            esac
+
+            echo "::group::$wf"
+            node -e "
+              const fs = require('fs');
+              const w = JSON.parse(fs.readFileSync('$wf', 'utf8'));
+              const names = new Set(w.nodes.map(n => n.name));
+              const missing = [];
+              for (const [from, ports] of Object.entries(w.connections || {})) {
+                if (!names.has(from)) missing.push('FROM ' + from);
+                for (const port of ports.main || []) {
+                  for (const link of port || []) {
+                    if (link && !names.has(link.node)) missing.push('TO ' + link.node);
+                  }
+                }
+              }
+              const requiredKeys = ['name', 'nodes', 'connections', 'settings'];
+              const missingKeys = requiredKeys.filter(k => !(k in w));
+              if (missingKeys.length || missing.length) {
+                console.error('FAIL: missing keys=' + JSON.stringify(missingKeys) + ' missing refs=' + JSON.stringify(missing));
+                process.exit(1);
+              }
+              if (w.active === true) {
+                console.error('FAIL: workflow.json has active=true (must be omitted or false at commit time)');
+                process.exit(1);
+              }
+              if (w.pinData && Object.keys(w.pinData).length > 0) {
+                console.error('FAIL: workflow.json has non-empty pinData (strip test data before commit)');
+                process.exit(1);
+              }
+              console.log('OK: nodes=' + w.nodes.length + ', connections=' + Object.keys(w.connections || {}).length);
+            " || fail=1
+            echo "::endgroup::"
+          done
+          if [ $fail -eq 1 ]; then
+            echo "Validation failed for at least one workflow.json"
+            exit 1
+          fi
+
+      - name: Em-dash guard (Brand Bibel)
+        run: |
+          # Em-dashes (—) are AI-content signature and forbidden in markdown + workflow.json.
+          # We fail the build if any non-skeleton README or workflow.json contains them.
+          set -e
+          found=$(grep -rln "—" templates/ --include="*.md" --include="*.json" --exclude-dir=_TEMPLATE 2>/dev/null || true)
+          if [ -n "$found" ]; then
+            echo "FAIL: em-dash (—) found in:"
+            echo "$found"
+            echo ""
+            echo "Replace with comma, period, or parenthesis. See N8N-BRAND-BIBEL.md."
+            exit 1
+          fi
+          echo "OK: no em-dashes in templates/"
