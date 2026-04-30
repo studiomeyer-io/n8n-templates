@@ -585,8 +585,5 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "pinData": {},
-  "meta": {
-    "templateId": "studiomeyer-voice-agent-memory-v2-multiprovider"
-  }
+  "pinData": {}
 }

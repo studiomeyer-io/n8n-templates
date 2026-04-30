@@ -121,18 +121,88 @@ Every template needs:
 
 ## What makes these templates different
 
-Most n8n templates on the marketplace are demos. They show the happy path and stop. We test ours against real production patterns that other public templates miss:
+Most n8n templates on the marketplace are demos. They show the happy path and stop. We do two things differently:
 
-| Pattern | Why it matters | Where in our templates |
+**Built into every template's workflow.json (verifiable when you import):**
+
+| Pattern | Why it matters | Where it lives |
 |---|---|---|
-| **Idempotency** | Trigger providers retry on 5xx. Without dedup, every retry creates a duplicate memory entry and a duplicate LLM bill. | `Normalize Payload` Code node uses `$getWorkflowStaticData` for an in-memory dedup window. Swap to Redis SET NX for clustered deployments. |
-| **Error branches** | LLM 429 / 500 / timeouts happen. Without an error branch, the workflow silently fails and the user gets nothing. | LLM Reply nodes have "On Error: Continue (Error Output)" set. Error path falls back to a graceful reply and logs the failure to Memory. |
-| **HMAC webhook verification** | Public webhooks without signature verification can be hit by anyone. At LLM scale this is a $1000 bill in 5 minutes. | First Code node after the webhook verifies provider HMAC (Vapi `x-vapi-signature`, Retell `x-retell-signature`, Telegram secret-token). Off by default, opt-in via env var. |
-| **Rate limiting** | Same reason as HMAC. Even with HMAC, a stolen key needs throttling. | Per-IP 60-requests-per-5-min window in `Normalize Payload`. Configurable. |
-| **Multi-provider switch** | Provider lock-in is bad for the builder. They want to A/B OpenAI vs Anthropic, swap if costs spike, fall back if one is down. | `Set Provider` + `Route by Provider` switch lets the builder pick OpenAI (default) or Anthropic. Both branches converge in a Code node that normalizes the response shape. |
-| **Memory de-duplication** | Same observation written twice creates noise. | StudioMeyer Memory's gatekeeper deduplicates on >95% similarity automatically. Our templates rely on it. |
+| **Multi-provider LLM switch** | Provider lock-in is bad for the builder. They want to A/B OpenAI vs Anthropic, swap if costs spike, fall back if one is down. | `Set Provider` + `Route by Provider` nodes let the builder pick OpenAI (default `gpt-5-mini`) or Anthropic (`claude-haiku-4-5`). Both branches converge in a `Normalize LLM Output` Code node that flattens the provider-specific response shape. |
+| **Memory de-duplication** | Same observation written twice creates noise in the knowledge graph. | StudioMeyer Memory's gatekeeper deduplicates on >95% content similarity automatically. Our templates rely on it. The `action: SKIPPED, similarity: 1` response on retries is the verification signal. |
 
-These five patterns are the difference between a template you import to learn and a template you import to ship.
+**Documented as drop-in code-node snippets in the [N8N-BRAND-BIBEL.md](./N8N-BRAND-BIBEL.md), not yet wired into the default workflow.json (opt-in for production):**
+
+| Pattern | Why it matters | What you do |
+|---|---|---|
+| **Idempotency** | Trigger providers retry on 5xx. Without dedup, every retry creates a duplicate memory entry and a duplicate LLM bill. | Add a Code node at the top of `Normalize Payload` with `$getWorkflowStaticData` 5-minute dedup window keyed on the provider's call/update id. Snippet in the Brand Bibel. Swap to Redis SET NX for clustered deployments. |
+| **Error branches** | LLM 429 / 500 / timeouts happen. Without an error branch, the workflow silently fails and the user gets nothing. | Set "On Error: Continue (using error output)" on each LLM Reply node, route the red error pin to a Code node that produces a graceful fallback reply and writes a `category: mistake` learning to Memory. Inline error pin uses `{{ $json.error.message }}`. The other documented syntax `{{ $json.execution.error.message }}` is only for a separate Error Trigger Workflow. The often-quoted `{{ $error.message }}` does not exist in n8n. |
+| **HMAC webhook verification** | Public webhooks without signature verification can be hit by anyone. At LLM scale this is a $1000 bill in 5 minutes. | Add a Code node right after the Webhook trigger that verifies the provider signature (Vapi `x-vapi-signature`, Retell `x-retell-signature`, Telegram secret-token) with `crypto.timingSafeEqual` and rejects unsigned requests. Snippet in the Brand Bibel. |
+| **Rate limiting** | Same reason as HMAC. Even with HMAC, a stolen key needs throttling. | Per-IP token bucket Code node, 60 requests / 5 min default. Tracked in `$getWorkflowStaticData('global').rateBuckets`. Snippet in the Brand Bibel. Swap to Redis `INCR + EXPIRE` for clusters. |
+
+The first table is what you get out of the box. The second table is what you wire in when you move from dev to production. Both are documented end-to-end so neither has to be re-invented per template.
+
+Roadmap note: v0.4.0 will ship the four production-patterns as opt-in nodes inside the default workflow.json (off by default with sticky-note instructions to enable), so they are one click away rather than one paste away.
+
+## How we compare to other public n8n template repos
+
+We audited five high-star public n8n template / workflow repos in April 2026 ([awesome-n8n-templates](https://github.com/enescingoz/awesome-n8n-templates), [n8n-workflows](https://github.com/Zie619/n8n-workflows), and three others) plus a sample of [n8n.io/workflows](https://n8n.io/workflows) listings. None of them ship the production patterns above. Most stop at the happy path:
+
+| Capability | Most public n8n template repos | This repo |
+|---|---|---|
+| Workflow runs once you import | yes | yes |
+| Sticky notes | sometimes | always (every SET-ME marker) |
+| Cover image | sometimes | always (1200x630, suite-consistent) |
+| Multi-provider LLM switch | rare | yes (Set Provider + Switch + Normalize Output) |
+| Idempotency pattern | none we found | documented snippet, opt-in node |
+| Error-output branches with correct n8n syntax | none we found | documented snippet, opt-in node |
+| Webhook HMAC verification | none we found | documented snippet (Vapi / Retell / Telegram / Stripe), opt-in env-var |
+| Rate limiting | none we found | documented snippet, opt-in node |
+| Memory layer with knowledge graph | n/a (most templates are stateless) | StudioMeyer Memory built in |
+| Hard n8n minVersion floor with CVE awareness | rare | declared, CVE-2026-27493 cited |
+| MIT license | usually | yes |
+| Open governance (CONTRIBUTING + COC + SECURITY + ECOSYSTEM) | rare | yes |
+| Repo CI that validates workflows | rare | GitHub Actions, blocks merges on broken refs / em-dashes / live credentials |
+
+The middle four rows are the gap. We close them with snippet-level documentation today and node-level wiring in v0.4.0.
+
+## FAQ
+
+**Do I need StudioMeyer Memory to use these templates?** Two of them yes, one less so. Templates 01 and 02 are built around the memory loop (entity.search → reason → write back). Template 03 mostly uses memory.search and memory.learn. Strip the Memory nodes from Template 02 and you have a generic Telegram support bot without history. We won't pretend that gives you the full value, but the workflow.json is yours to fork.
+
+**Why two LLM providers?** Provider lock-in is bad for the builder. OpenAI rate-limits during product launches, Anthropic has had outages, Gemini hallucinates differently than both. The `Set Provider` node lets you swap with one click. We pick OpenAI as default because that's the bigger audience.
+
+**Why n8n 2.10.1 as the floor?** [CVE-2026-27493](https://nvd.nist.gov/vuln/detail/CVE-2026-27493) (CVSS 9.5) is an unauthenticated RCE in Form nodes, fixed Feb 2026. We do not use Form nodes, but you should not run a vulnerable n8n in any case.
+
+**Can I use this with n8n Cloud?** Yes. All templates run unchanged on n8n Cloud, n8n Self-Hosted, n8n Docker, and the n8n Desktop app. The community node `n8n-nodes-studiomeyer-memory` installs via *Settings → Community Nodes* on Cloud. Webhook trigger URLs are auto-generated by n8n.
+
+**What's the cost per execution?** Roughly $0.002 to $0.007 depending on which template, provider, and reply length. Detailed cost tables in each template's README. The free Memory tier (10k ops / month) plus OpenAI / Anthropic free credits cover several thousand executions before you spend anything.
+
+**Are these production-ready?** The happy path is. The five production patterns (idempotency, error branches, HMAC, rate limiting, memory de-dup) are documented as drop-in code-node snippets in the [Brand Bibel](./N8N-BRAND-BIBEL.md) and you wire them in for hardened deployments. v0.4.0 will move the four opt-in patterns into the default workflow.json with sticky-note enable / disable instructions.
+
+**How do I contribute?** Open a [template request issue](https://github.com/studiomeyer-io/n8n-templates/issues/new?template=template_request.md) so we can confirm scope. Then copy `templates/_TEMPLATE/`, fill it in, smoke-test in your own n8n, open a PR. The [CONTRIBUTING.md](./CONTRIBUTING.md) and [N8N-BRAND-BIBEL.md](./N8N-BRAND-BIBEL.md) cover the full bar.
+
+**Why is the workflow.json so verbose?** Sticky notes. The yellow notes mark every SET-ME spot for the importing builder. n8n's own template-marketplace creator-hub flags missing sticky notes as the #1 rejection reason for new submissions. We over-comment on purpose.
+
+**Where do I report a security issue?** [SECURITY.md](./SECURITY.md). Email `hello@studiomeyer.io` with subject `[security] n8n-templates`. We aim for 48-hour acknowledgement and a 7-day patch on high-severity issues.
+
+## Distribution status
+
+This repo lives on GitHub. Submission to the wider n8n distribution channels happens incrementally as templates mature. Current state:
+
+| Channel | Status |
+|---|---|
+| GitHub repo (this) | live since v0.1.0 |
+| GitHub Discussions enabled | yes |
+| GitHub Topics (n8n, n8n-templates, ai-agents, mcp, ...) | set |
+| GitHub Social Preview image | set |
+| n8n.io/workflows submissions | not yet, planned post-v0.4.0 |
+| awesome-n8n-templates PR | not yet, planned post-v0.4.0 |
+| n8n Discord show-and-tell | not yet |
+| dev.to long-form tutorial per template | not yet |
+| Reddit r/n8n + r/AI_Agents posts | not yet |
+| LinkedIn DACH PDF carousels | not yet |
+
+The reason we hold submissions back is the production-patterns gap above. Templates with snippet-level docs are good. Templates with opt-in production nodes inside the workflow.json (v0.4.0) are great. We submit when great.
 
 ## Repo structure
 

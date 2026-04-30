@@ -4,11 +4,35 @@ All notable changes to this repository will be documented here. The format is lo
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-30
+
+### Fixed
+
+Response to the second 3-agent code review pass (analyst + critic + research, all three completed this time).
+
+- **Honesty fix in every template README and the top-level README.** v0.3.0 said "These five patterns ship in the workflow.json". They don't. They are documented as drop-in code-node snippets in `N8N-BRAND-BIBEL.md`. The current workflow.json ships the happy path. The patterns are opt-in additions you wire in for hardened production. Fixed every template README to say so explicitly. The roadmap entry for v0.4.0 commits to wiring the four production-patterns as opt-in nodes inside the default workflow.json so they're one click away rather than one paste away.
+- **Error-handling syntax (Critic v2 P1.1).** The previous claim "use `{{ $error.message }}`" was flat wrong. `$error` does not exist as an n8n expression context. Fixed to `{{ $json.error.message }}` for the inline error pin (downstream of "Continue (using error output)") and noted that `{{ $json.execution.error.message }}` is the separate, also-valid syntax for the Error Trigger Workflow (Workflow Settings → Error Workflow). Both are documented in the n8n Docs. The wrong claim appeared in eight places: brand bibel, top-level README, changelog, and three template READMEs. All eight fixed and verified.
+- **HMAC `timingSafeEqual` length-guard (Critic v2 P1.4).** `crypto.timingSafeEqual` throws `RangeError` if the two buffers differ in length, which an attacker can trigger with a one-character signature, turning the workflow into a free DoS vector. Brand bibel HMAC snippet now does an explicit `if (sigBuf.length !== expBuf.length) throw new Error('HMAC verification failed')` before the timing-safe compare. Snippet also covers Stripe's `t=<timestamp>,v1=<hmac>` format with the recommendation to use `stripe.webhooks.constructEvent` from the SDK rather than re-implementing the parsing.
+- **Idempotency disclaimer (Critic v2 P1.2).** Brand bibel idempotency snippet now spells out that `$getWorkflowStaticData('global')` is not atomic and not cluster-aware. Two concurrent executions with the same key can both pass the dedup check in the millisecond window between read and write. Two n8n workers behind a load balancer don't share the static-data map at all. Default in-memory pattern is good enough for single-instance dev / small production loads. Production-empfehlung: Redis SET NX with EX 300 NX (atomic, cluster-aware, cleans up via TTL). Snippet provided.
+- **Rate-limit disclaimer (Critic v2 P1.3).** Brand bibel rate-limit snippet expanded with three improvements: (a) explicit TOCTOU note (we may overshoot the limit by ~5% under concurrent fires), (b) `MAX_BUCKETS = 5000` cap on the in-memory map with eviction of expired entries to prevent unbounded memory growth, (c) production recommendation to handle rate-limiting at the reverse proxy (Nginx `limit_req_zone`, Cloudflare WAF, AWS WAF, Traefik `RateLimit` middleware) for atomic + cluster-aware + faster behavior. The Code-Node pattern remains as defense-in-depth or for setups without a reverse proxy.
+- **Em-dashes in cover.md files (Analyst v2 finding).** Four cover.md files (templates 01/02/03 + _TEMPLATE) had one em-dash each that the v0.2.0 sweep missed. Cleaned. CI em-dash guard in `.github/workflows/validate-workflows.yml` now covers cover.md too.
+- **`meta` field in workflow.json (Analyst v2 finding).** The brand bibel forbids `meta` because the n8n Public API rejects it on POST `/api/v1/workflows`. v0.2.0 templates still had `meta: { templateId: "..." }` left over. Stripped from all three templates. The validate-workflows CI now blocks `meta` field presence on PR.
+
+### Added
+
+- **"How we compare to other public n8n template repos" section** in the top-level README. Thirteen-row capability matrix that makes the production-patterns gap visible at first scroll. Driven by the research-agent finding that no competitor ships these patterns.
+- **FAQ section** in the top-level README with eight questions covering memory dependency, multi-provider rationale, n8n version floor, Cloud compatibility, cost-per-execution, production-readiness honesty, contribution flow, sticky-note verbosity, and security-issue reporting.
+- **Distribution status table** in the top-level README. Explicit list of which channels we are on (GitHub repo, topics, social preview, discussions) and which we hold back until v0.4.0 ships the production patterns as wired-in nodes (n8n.io/workflows, awesome-n8n-templates, dev.to, Reddit, LinkedIn). Honesty about the maturity gap up front.
+
+### Notes
+
+- v0.3.1 is a patch release because no template's behavior changed, only documentation and brand-bibel snippets. v0.4.0 will be the next minor and will move the four opt-in production patterns from documented snippets into actual nodes inside the default workflow.json (off by default with sticky-note enable instructions). That is the version we submit to n8n.io and awesome-n8n-templates.
+
 ## [0.3.0] - 2026-04-30
 
 ### Added
 
-- **Production patterns block** in every template README. Five sections covering idempotency, error branches with the correct `{{ $error.message }}` syntax (the deprecated `$json.execution.error.message` did not work), webhook HMAC verification (Vapi `x-vapi-signature`, Retell `x-retell-signature`, Telegram secret-token, Stripe), rate limiting (60 requests / 5 min / IP, configurable), and memory de-duplication via the gatekeeper. These are the patterns that distinguish a "demo this" template from a "ship this" template, and they are missing from every other public n8n template repo we audited.
+- **Production patterns block** in every template README. Five sections covering idempotency, error branches with the correct `{{ $json.error.message }}` syntax for inline error pins (`{{ $json.execution.error.message }}` is for the separate Error Trigger Workflow, both are documented n8n syntaxes), webhook HMAC verification (Vapi `x-vapi-signature`, Retell `x-retell-signature`, Telegram secret-token, Stripe), rate limiting (60 requests / 5 min / IP, configurable), and memory de-duplication via the gatekeeper. These are the patterns that distinguish a "demo this" template from a "ship this" template, and they are missing from every other public n8n template repo we audited.
 - **Tech stack matrix** in every template README. Concrete versions, costs, free-tier limits, and required-when columns for n8n, the community node, StudioMeyer Memory, OpenAI / Anthropic, and the trigger provider.
 - **Credentials checklist** in every template README. Four-item checkbox list with where to get each key, which auth-mode to pick, and what test endpoint confirms it works.
 - **Hard compatibility floor** of n8n 2.10.1 declared in the top-level README and brand bibel. Background: CVE-2026-27493 (CVSS 9.5, fixed Feb 2026) is an unauthenticated RCE in Form nodes. None of these templates use Form nodes, but no one should run a vulnerable n8n in any case. 1.x users: upgrade to 1.123.22 or later.

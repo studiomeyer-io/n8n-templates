@@ -167,7 +167,7 @@ Ein Block der in JEDEM Template README zwischen "Common gotchas" und "Related te
 - 02 Customer Support: Telegram `update_id` oder `message.message_id`
 - 03 Personal Assistant: Telegram `update_id`
 
-**Error Branches.** Jeder LLM-Call und jeder externe API-Call muss einen Error-Output haben der nicht still failed. n8n-Syntax fuer Error-Daten ist `{{ $error.message }}` (NICHT `$json.execution.error.message`, das ist deprecated/falsch). AI-Agent-Nodes muessen auf "Stop and Return Error" gesetzt sein. Sticky Note dokumentiert das pro Template.
+**Error Branches.** Jeder LLM-Call und jeder externe API-Call muss einen Error-Output haben der nicht still failed. n8n-Syntax fuer Error-Daten ist `{{ $json.error.message }}` (NICHT `$json.execution.error.message`, das ist deprecated/falsch). AI-Agent-Nodes muessen auf "Stop and Return Error" gesetzt sein. Sticky Note dokumentiert das pro Template.
 
 **Webhook Security.** Wenn der Trigger ein Webhook ist und der Anbieter HMAC-Signing unterstuetzt (Vapi via `signing-secret` Header, Retell via `X-Retell-Signature`, Stripe `Stripe-Signature`, Telegram via `X-Telegram-Bot-Api-Secret-Token`), muss ein Code-Node am Anfang die Signatur verifizieren und unsignierte Requests verwerfen. Code-Snippet als Inline-Sticky Note. Default-Implementation: HMAC-SHA256 mit timing-safe-equal.
 
@@ -269,22 +269,29 @@ Default-Provider ist `openai` (groessere Audience). User kann mit einem Klick au
 
 ### Error-Handling Pattern (Pflicht wenn LLM-Call oder externer API-Call)
 
-In n8n setzt man pro Node unter den 3-dot-Menu "On Error" auf "Continue (Error Output)" oder "Stop and Return Error" je nach Use-Case. Der Error-Output-Pin ist im Editor rot.
+In n8n setzt man pro Node unter dem 3-dot-Menu "Settings → On Error" auf "Continue (using error output)" oder "Stop Workflow on Error" je nach Use-Case. Der Error-Output-Pin ist im Editor rot.
 
-Korrekte Syntax fuer Error-Daten in nachfolgenden Nodes:
+Korrekte Syntax fuer Error-Daten in dem Node der direkt am roten Error-Pin haengt:
 
 ```
-{{ $error.message }}
-{{ $error.name }}
-{{ $error.description }}
+{{ $json.error.message }}
+{{ $json.error.name }}
+{{ $json.error.description }}
 ```
 
-NICHT `{{ $json.execution.error.message }}` (deprecated, gibt undefined). NICHT `{{ $error }}` ohne field (rendert das Object als string, unbrauchbar).
+Hinweis fuer den Error-Trigger-Workflow (eigener Workflow, nicht der Error-Output-Pin innerhalb eines Workflows): dort heisst es `{{ $json.execution.error.message }}` und `{{ $json.workflow.name }}`. Beide Pfade sind in n8n-Docs dokumentiert, sie sind nicht gegenseitig ersetzbar:
+
+| Wo | Korrekte Syntax | Wann |
+|---|---|---|
+| Direkt nach einem Node mit "Continue (using error output)" | `{{ $json.error.message }}` | inline-error-handling |
+| Im separaten "Error Trigger" Workflow (Workflow-Settings → Error Workflow) | `{{ $json.execution.error.message }}` + `{{ $json.workflow.name }}` | global-failure-alert |
+
+**FALSCH** ist `{{ $error.message }}`. Diese Variable existiert nicht in n8n-Expressions.
 
 Pro Template mindestens ein Error-Branch der die LLM-Failure abfaengt:
-- LLM Reply Node: "On Error" = "Continue (Error Output)"
-- Error-Branch landet in einem Code-Node der ein Fallback-Reply baut ("Sorry, our system is briefly unavailable. We'll get back to you within an hour.") und Memory mit category="mistake" + tag="llm-error" loggt
-- Memory-Logging im Error-Branch ist Pflicht damit wir Fehler-Patterns sehen
+- LLM Reply Node: "On Error" = "Continue (using error output)"
+- Error-Pin landet in einem Code-Node der ein Fallback-Reply baut ("Sorry, our system is briefly unavailable. We'll get back to you within an hour.") und Memory mit `category: "mistake"` + `tags: [llm-error, <provider>]` loggt
+- Memory-Logging im Error-Branch ist Pflicht damit wir Fehler-Patterns spaeter via `nex_search` finden
 
 ### Idempotency Pattern (Pflicht wenn der Trigger replay-faehig ist)
 
@@ -294,7 +301,8 @@ Loesung: Code-Node am Anfang nach Trigger der einen Idempotency-Key extrahiert (
 
 ```js
 // At top of "Normalize Payload" code node, after extracting idempotencyKey:
-const seen = $getWorkflowStaticData('global').seenKeys ?? {};
+const data = $getWorkflowStaticData('global');
+const seen = data.seenKeys ?? {};
 const now = Date.now();
 // Purge entries older than 5 minutes
 for (const k of Object.keys(seen)) if (now - seen[k] > 300000) delete seen[k];
@@ -302,60 +310,118 @@ if (seen[idempotencyKey]) {
   return [{ json: { skipped: true, reason: 'duplicate', idempotencyKey } }];
 }
 seen[idempotencyKey] = now;
-$getWorkflowStaticData('global').seenKeys = seen;
+data.seenKeys = seen;
 ```
 
-Production-Skalierung: ersetze `$getWorkflowStaticData` mit Redis SET NX (`SET key value EX 300 NX`). `$getWorkflowStaticData` ist per-Workflow-Instance, nicht cluster-aware.
+**Concurrency-Disclaimer (Critic-Finding v0.3.1):** `$getWorkflowStaticData` ist NICHT atomar. Bei zwei gleichzeitigen Executions des Workflows mit identischem Idempotency-Key sehen beide die alte Map ohne den Key, beide writen sie zurueck, beide laufen durch. Das Window in dem das passiert ist sehr klein (Millisekunden), aber bei Webhook-Bursts (Provider sendet 3x in 100ms) trifft man es. Plus: `$getWorkflowStaticData` ist per-Workflow-Instance, nicht cluster-aware. Zwei n8n-Worker hinter einem Load-Balancer haben getrennte Maps und die Dedup funktioniert garnicht.
+
+**Production-Empfehlung:** ab dem ersten Skalierungs-Schritt (mehrere n8n-Worker oder hohe Trigger-Frequenz) auf Redis SET NX umstellen:
+
+```js
+// Redis variant: atomic check-and-set across n8n workers
+const redis = require('redis').createClient({ url: $env('REDIS_URL') });
+await redis.connect();
+const result = await redis.set(`idem:${idempotencyKey}`, '1', { EX: 300, NX: true });
+await redis.disconnect();
+if (result === null) {
+  return [{ json: { skipped: true, reason: 'duplicate', idempotencyKey } }];
+}
+```
+
+Default-Pattern (in-memory) ist gut genug fuer Single-Instance-Dev / kleine Production-Loads. Sticky-Note im Template macht den Trade-off explizit.
 
 ### Webhook HMAC Verification (Pflicht wenn Trigger-Provider HMAC-Signing anbietet)
 
 Wenn der Anbieter eine Signing-Secret + Header-Signatur unterstuetzt, MUSS der erste Code-Node nach dem Webhook-Trigger den HMAC verifizieren und unsignierte oder falsch signierte Requests verwerfen.
 
 Provider-Header (Stand 2026-04):
-- Vapi: `x-vapi-signature` (HMAC-SHA256 von Body)
-- Retell: `x-retell-signature`
-- Telegram: `x-telegram-bot-api-secret-token` (vergleicht mit hinterlegtem Token, kein HMAC)
-- Stripe: `Stripe-Signature` (HMAC-SHA256 mit timestamp-prefix)
+- Vapi: `x-vapi-signature` (HMAC-SHA256 von Raw-Body, Hex-encoded)
+- Retell: `x-retell-signature` (HMAC-SHA256 von Raw-Body, Hex-encoded)
+- Telegram: `x-telegram-bot-api-secret-token` (Plain-Token-Vergleich, kein HMAC)
+- Stripe: `Stripe-Signature` (`t=<timestamp>,v1=<hmac>` Format mit Replay-Schutz, Stripe-SDK empfohlen)
 
-Code-Node am Anfang:
+Code-Node am Anfang (Default-Pattern, off by default):
 
 ```js
 const crypto = require('crypto');
-const secret = $env('VAPI_SIGNING_SECRET'); // or hardcoded with credential mention
+const secret = $env('VAPI_SIGNING_SECRET');
+if (!secret) {
+  // Disabled by design: warn once, let request through.
+  // To enable: set VAPI_SIGNING_SECRET env var on the n8n host.
+  return [{ json: { ...$request.body, _hmacSkipped: true } }];
+}
+
 const sig = $request.headers['x-vapi-signature'];
-const body = JSON.stringify($request.body);
-const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
-if (!sig || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+if (!sig || typeof sig !== 'string') {
+  throw new Error('Missing x-vapi-signature header');
+}
+
+// Pflicht: raw body for HMAC. n8n's $request.body is parsed JSON; for HMAC
+// you need the original byte stream. Enable "Raw Body" in the Webhook node
+// settings (under "Options"). The raw bytes appear at $request.rawBody.
+const rawBody = $request.rawBody ?? JSON.stringify($request.body);
+const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+
+const sigBuf = Buffer.from(sig, 'hex');
+const expBuf = Buffer.from(expected, 'hex');
+
+// Length-Guard PFLICHT: timingSafeEqual wirft RangeError bei unterschiedlicher
+// Buffer-Laenge. Ohne diesen Check kann ein Angreifer mit einer 1-Char-
+// Signatur den Workflow zum Crashen bringen (DoS). Mit dem Length-Guard
+// laeuft er sauber in den Reject-Pfad.
+if (sigBuf.length !== expBuf.length) {
+  throw new Error('HMAC verification failed (length mismatch)');
+}
+if (!crypto.timingSafeEqual(sigBuf, expBuf)) {
   throw new Error('HMAC verification failed');
 }
 return [{ json: $request.body }];
 ```
 
-In Sticky-Note dokumentiert: User muss `VAPI_SIGNING_SECRET` als n8n env var setzen, sonst ist der Workflow public-callable und der Bill-Schaden potentiell hoch. Default-Behavior ohne secret: Workflow funktioniert weiter aber loggt Warning ins Memory.
+**Sticky-Note Pflicht:** "User muss `VAPI_SIGNING_SECRET` als n8n env var setzen, sonst ist der Webhook public-callable. Default-Behavior ohne secret: skip silently (template laeuft weiter, aber Logging-Note `_hmacSkipped: true`)."
+
+**Stripe-Sonderfall:** Stripe's `Stripe-Signature` Header hat `t=<timestamp>,v1=<hmac>` Format mit Replay-Schutz. Manuelle Verifikation ist fehleranfaellig (Timestamp-Tolerance, Multiple-Signatures-Support, etc.). Statt eigener Implementation immer `stripe.webhooks.constructEvent(rawBody, sig, secret)` aus dem `stripe` npm-Package verwenden. Code-Node `require('stripe')` + Aufruf ist drei Zeilen statt 30.
 
 ### Rate Limiting Pattern (Pflicht wenn Trigger-Webhook public ist)
 
 Public Webhook + LLM-Call = potentielle Bill-Bombe wenn Angreifer 1000x in einer Minute hittet. Default-Schutz: Code-Node am Anfang mit IP-basiertem Limit.
 
 ```js
-const ip = $request.headers['x-forwarded-for']?.split(',')[0]?.trim() ?? $request.headers['x-real-ip'] ?? 'unknown';
-const buckets = $getWorkflowStaticData('global').rateBuckets ?? {};
+const ip = $request.headers['x-forwarded-for']?.split(',')[0]?.trim()
+        ?? $request.headers['x-real-ip']
+        ?? 'unknown';
+const data = $getWorkflowStaticData('global');
+const buckets = data.rateBuckets ?? {};
 const now = Date.now();
 const WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 const LIMIT = 60; // 60 requests per IP per window
+const MAX_BUCKETS = 5000; // bound the map; evict oldest when full
 
+// Sliding-window-ish bucket
 const bucket = buckets[ip] ?? { count: 0, windowStart: now };
 if (now - bucket.windowStart > WINDOW_MS) { bucket.count = 0; bucket.windowStart = now; }
 bucket.count++;
 buckets[ip] = bucket;
-$getWorkflowStaticData('global').rateBuckets = buckets;
+
+// Memory-leak-Schutz: Map bounded + alte Eintraege erbarmungslos rausschmeissen
+if (Object.keys(buckets).length > MAX_BUCKETS) {
+  const cutoff = now - WINDOW_MS;
+  for (const k of Object.keys(buckets)) {
+    if (buckets[k].windowStart < cutoff) delete buckets[k];
+  }
+}
+data.rateBuckets = buckets;
 
 if (bucket.count > LIMIT) {
   throw new Error(`Rate limit exceeded for ${ip}: ${bucket.count} requests in window`);
 }
 ```
 
-Production-Skalierung: Redis INCR + EXPIRE. Das Pattern ist gut genug fuer Single-Instance-Deployments + skalierbar bis ~10k requests/Stunde.
+**Concurrency-Disclaimer (Critic-Finding v0.3.1):** wie bei Idempotency, `$getWorkflowStaticData` ist nicht atomar. TOCTOU zwischen Read und Write des Buckets erlaubt im worst case dass der `count` etwas hoeher steigen kann als `LIMIT` (wir verlieren ein paar increments bei concurrent fires). Bei einem Limit von 60 ist die praktische Auswirkung eine Toleranz von vielleicht +5%. Kein Sicherheitsproblem, aber dokumentiert.
+
+**Production-Empfehlung (Reverse-Proxy-Layer):** Bei realen Production-Loads gehoert Rate-Limiting auf den Reverse-Proxy vor n8n (Nginx `limit_req_zone`, Cloudflare WAF, AWS WAF, Traefik `RateLimit` middleware). Dort ist das Pattern atomar, faster, und cluster-aware. Der n8n-internal Rate-Limit-Code-Node bleibt als Defense-in-Depth oder fuer Setups ohne Reverse-Proxy.
+
+Bei Einzel-Instance-n8n-Cloud-Deployments (kein Edge-LB davor) ist der Code-Node der einzige Layer und das Pattern ist gut genug fuer ~10k requests/Stunde.
 
 Aktuelle Model-IDs (Stand 2026-04-30, [Memory `0d27da68`](https://memory.studiomeyer.io)):
 

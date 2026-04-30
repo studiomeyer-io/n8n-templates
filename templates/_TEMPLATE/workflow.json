@@ -1,9 +1,9 @@
 {
-  "name": "TEMPLATE — <Replace With Title>",
+  "name": "TEMPLATE, <Replace With Title>",
   "nodes": [
     {
       "parameters": {
-        "content": "## <Template Title>\n\n**Stack:** <Trigger> → <middle steps> → <result>.\n\n**Why this exists:** <one paragraph why a builder cares>.\n\n**Pre-requisites:** StudioMeyer Memory community node installed (`npm install n8n-nodes-studiomeyer-memory`), Memory credential configured. Other credentials documented at the SET-ME stickies below.",
+        "content": "## <Template Title>\n\n**Stack:** <Trigger> \u2192 <middle steps> \u2192 <result>.\n\n**Why this exists:** <one paragraph why a builder cares>.\n\n**Pre-requisites:** StudioMeyer Memory community node installed (`npm install n8n-nodes-studiomeyer-memory`), Memory credential configured. Other credentials documented at the SET-ME stickies below.",
         "height": 280,
         "width": 480,
         "color": 6
@@ -12,7 +12,10 @@
       "name": "Sticky Note - Intro",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-260, -40]
+      "position": [
+        -260,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -25,7 +28,10 @@
       "name": "Sticky Note - Set Me",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [240, -40]
+      "position": [
+        240,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -38,7 +44,10 @@
       "name": "Trigger (replace me)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 280],
+      "position": [
+        240,
+        280
+      ],
       "webhookId": "REPLACE-ME"
     },
     {
@@ -49,7 +58,10 @@
       "name": "Normalize Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 280]
+      "position": [
+        460,
+        280
+      ]
     }
   ],
   "connections": {

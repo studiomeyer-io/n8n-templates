@@ -655,8 +655,5 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "pinData": {},
-  "meta": {
-    "templateId": "studiomeyer-personal-assistant-memory-v1"
-  }
+  "pinData": {}
 }

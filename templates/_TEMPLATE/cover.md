@@ -1,4 +1,4 @@
-# Cover Image Spec — `<Template Title>`
+# Cover Image Spec, `<Template Title>`
 
 ## Output
 

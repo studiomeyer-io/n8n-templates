@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for considering a contribution. The bar for new templates is high — each one represents StudioMeyer Memory in front of thousands of n8n users on n8n.io and through the StudioMeyer marketing channels.
+Thanks for considering a contribution. The bar for new templates is high, each one represents StudioMeyer Memory in front of thousands of n8n users on n8n.io and through the StudioMeyer marketing channels.
 
 ## What we accept
 

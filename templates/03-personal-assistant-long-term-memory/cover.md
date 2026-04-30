@@ -1,4 +1,4 @@
-# Cover Image Spec — Template 03
+# Cover Image Spec, Template 03
 
 ## Submission cover (n8n.io/workflows)
 
