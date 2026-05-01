@@ -414,13 +414,13 @@
     },
     {
       "parameters": {
-        "content": "## Async memory writes (after the response)\n\nThese two nodes run **after** the voice provider has already received the reply, so they don't add latency to the call. They share the same `Normalize LLM Output` so they automatically use whichever provider answered.\n\nIf you don't care about per-call observations, delete `Memory: Observe Call` and keep only `Memory: Learn Outcome`.",
-        "height": 220,
+        "content": "## Memory writes (after Respond, execution-order-dependent)\n\nn8n's `executionOrder: v1` runs each output branch depth-first - one branch finishes before the next begins. When a node has multiple outputs, branches are ordered by canvas position (top-to-bottom, then left-to-right). `Respond to Voice Provider` is positioned higher and to the left of the memory-write branch on the canvas, so it executes first and the voice provider receives the reply before the memory writes start.\n\n**This is execution-order-dependent, not a hard async guarantee.** If you reposition nodes the order can change. Verify in your n8n setup (Settings -> Execution Order) if call latency is critical. For a stricter contract use a separate Execute-Workflow trigger or a queue (Redis, BullMQ, n8n Queue Mode).\n\nIf you don't care about per-call observations, delete `Memory: Observe Call` and keep only `Memory: Learn Outcome`. Both share `Normalize LLM Output` so they use whichever provider answered.",
+        "height": 280,
         "width": 380,
         "color": 7
       },
       "id": "note-async-writes",
-      "name": "Sticky Note - Async Writes",
+      "name": "Sticky Note - Memory Writes",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [

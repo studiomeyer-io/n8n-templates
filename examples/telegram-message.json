@@ -1,0 +1,25 @@
+{
+  "_comment": "Sample Telegram Bot API Update payload for smoke-testing Template 02 (Customer Support) and Template 03 (Personal Assistant). Synthetic data based on the Telegram Bot API documentation. POST this body to your test-webhook URL with Content-Type: application/json. To exercise the secretToken check, also send the matching X-Telegram-Bot-Api-Secret-Token header (must equal the secretToken parameter on the n8n Webhook node).",
+  "update_id": 824736251,
+  "message": {
+    "message_id": 4287,
+    "from": {
+      "id": 123456789,
+      "is_bot": false,
+      "first_name": "Maria",
+      "last_name": "Schmidt",
+      "username": "maria_schmidt",
+      "language_code": "de"
+    },
+    "chat": {
+      "id": 123456789,
+      "first_name": "Maria",
+      "last_name": "Schmidt",
+      "username": "maria_schmidt",
+      "type": "private"
+    },
+    "date": 1714559200,
+    "text": "Hallo, ich hatte letzten Monat ein Ticket bezueglich der Buchungs-API geoeffnet. Ist das schon weiterbearbeitet?",
+    "entities": []
+  }
+}

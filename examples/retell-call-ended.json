@@ -1,0 +1,33 @@
+{
+  "_comment": "Sample Retell call_ended webhook payload for smoke-testing Template 01. Synthetic data based on the Retell webhook documentation as of 2026-05. IMPORTANT: the `call_ended` event does NOT include `call_analysis` - that field only ships in the separate `call_analyzed` event which Retell sends after post-call processing completes. If your workflow needs the analysis object, listen for `call_analyzed` instead (or in addition to) `call_ended`. Source: https://docs.retellai.com/features/webhook-overview. POST this body to your test-webhook URL with Content-Type: application/json. To exercise the HMAC verify path, also send the matching x-retell-signature header (HMAC-SHA256 of the raw body, hex-encoded, signed with RETELL_SIGNING_SECRET).",
+  "event": "call_ended",
+  "call": {
+    "call_type": "phone_call",
+    "call_id": "retell-call-9b8a7c6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d",
+    "agent_id": "agent_8f3e2d1c0b9a8765",
+    "call_status": "ended",
+    "from_number": "+49170555444",
+    "to_number": "+34971555888",
+    "direction": "inbound",
+    "start_timestamp": 1714559001000,
+    "end_timestamp": 1714559150000,
+    "duration_ms": 149000,
+    "disconnection_reason": "user_hangup",
+    "transcript": "User: Hi, I called yesterday about a tour booking for next weekend. Did you save my preferences?\nAgent: Yes, I have your details. You asked about the Tramuntana hike for two people on Saturday morning. Would you like to confirm?\nUser: Yes please, lock it in for Saturday at 9am.\nAgent: Done. I'll send the confirmation to the email you gave me last time. Anything else?\nUser: That's all, thanks.",
+    "transcript_object": [
+      {"role": "user", "content": "Hi, I called yesterday about a tour booking for next weekend. Did you save my preferences?", "words": []},
+      {"role": "agent", "content": "Yes, I have your details. You asked about the Tramuntana hike for two people on Saturday morning. Would you like to confirm?", "words": []},
+      {"role": "user", "content": "Yes please, lock it in for Saturday at 9am.", "words": []},
+      {"role": "agent", "content": "Done. I'll send the confirmation to the email you gave me last time. Anything else?", "words": []},
+      {"role": "user", "content": "That's all, thanks.", "words": []}
+    ],
+    "recording_url": "https://api.retellai.com/recordings/retell-call-9b8a7c6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d.wav",
+    "public_log_url": "https://api.retellai.com/logs/retell-call-9b8a7c6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d.txt",
+    "metadata": {
+      "campaign": "spring-tours-2026"
+    },
+    "retell_llm_dynamic_variables": {
+      "customer_name": null
+    }
+  }
+}

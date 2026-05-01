@@ -152,7 +152,7 @@ Per ticket the workflow does 4 Memory ops (Lookup + Open or Create + Observe + L
 
 | Component | Cost (Stand 2026-04) | Per-ticket cost |
 |---|---|---|
-| **StudioMeyer Memory** | EUR 0 / 29 / 49 per month | Free tier: 10k ops/mo (~2500 tickets). Pro tier: unlimited. |
+| **StudioMeyer Memory** | EUR 0 / 29 / 49 per month | Free tier: 200 credits (one credit per op, ~50 support tickets). Pro tier: unlimited. |
 | **OpenAI gpt-5-mini** (default) | $0.25 / 1M input + $2.00 / 1M output | ~$0.0014 per ticket (~500 in + 600 out tokens) |
 | **Anthropic claude-haiku-4-5** | $1 / 1M input + $5 / 1M output | ~$0.0035 per ticket |
 | Telegram Bot API | free | free |
@@ -164,7 +164,7 @@ Per ticket the workflow does 4 Memory ops (Lookup + Open or Create + Observe + L
 | OpenAI gpt-5-mini | EUR 29/mo (Pro tier required) | ~$7/mo | **~EUR 36/mo** |
 | Anthropic claude-haiku-4-5 | EUR 29/mo | ~$17.50/mo | **~EUR 47/mo** |
 
-Below 2 500 tickets/month you stay within the free Memory tier and pay only the LLM (~$1-9/mo). Pro tier ($29/mo) also unlocks the 3D customer-relationship graph at memory.studiomeyer.io/portal/memory/knowledge.
+Below 50 tickets/month you stay within the free Memory tier (200 credits, one per op) and pay only the LLM (~$1-9/mo). Past that, Pro at EUR 29/mo lifts the cap. Pro tier ($29/mo) also unlocks the 3D customer-relationship graph at memory.studiomeyer.io/portal/memory/knowledge.
 
 The error branch fires on LLM failures (rate limit, 5xx). It writes one extra Memory op (Learn Error) per failure. At a healthy 99.5% success rate this adds <0.5% to your bill.
 
@@ -194,7 +194,7 @@ Four patterns ship in `workflow.json` as actual nodes, three opt-in via env vars
 
 ## Hard compatibility floor
 
-**Minimum n8n version: 2.10.1** (CVE-2026-27493 fix). Older versions of n8n have an unauthenticated RCE vulnerability in Form nodes. This template does not use Form nodes itself, but you should still upgrade for general security. Older 1.x users: upgrade to 1.123.22 LTS or later. The pre-activation check on n8n 2.15.0 was used to validate every node type-string in this template.
+**Minimum n8n version with CVE-2026-27493 fix:** >= 2.9.3 (stable channel) / >= 2.10.1 (latest / beta channel) / >= 1.123.22 (1.x LTS). CVE-2026-27493 is an unauthenticated RCE in Form nodes (CVSS 9.5). This template does not use Form nodes itself, but you should still upgrade for general security. The pre-activation check on n8n 2.15.0 was used to validate every node type-string in this template.
 
 ## Tech stack matrix
 
@@ -202,7 +202,7 @@ Four patterns ship in `workflow.json` as actual nodes, three opt-in via env vars
 |---|---|---|---|---|
 | n8n | >= 2.10.1 (CVE-2026-27493 floor) | self-hosted free / Cloud $20/mo | n8n Cloud trial | always |
 | n8n-nodes-studiomeyer-memory | >= 0.1.0 | free | n/a | always |
-| StudioMeyer Memory | API key | EUR 0 / 29 / 49 | 10k ops/month | always |
+| StudioMeyer Memory | API key | EUR 0 / 29 / 49 | 200 credits (one per op) | always |
 | OpenAI (default) | gpt-5-mini | $0.25 / 1M input + $2.00 / 1M output | $5 trial credit | provider = openai |
 | Anthropic | claude-haiku-4-5 | $1 / 1M input + $5 / 1M output | $5 trial credit | provider = anthropic |
 | Telegram (BotFather token) or WhatsApp Cloud API | latest stable | varies | trial available | always |
@@ -239,7 +239,7 @@ The four memory layers a 2026 builder considers for an n8n bot:
 |---|---|---|---|---|
 | Verified n8n custom node | Yes (this repo, npm provenance) | Community HTTP node | Community node | Third-party node |
 | Reference templates ship | 8 templates in this repo | Reddit posts only | Some | None curated |
-| Free tier | 10k ops/mo | 10K memories + 1K retrieval calls/mo | 1k credits/mo cloud + Graphiti OSS self-host | OSS self-host only |
+| Free tier | 200 credits (one per op) | 10K memories + 1K retrieval calls/mo | 1k credits/mo cloud + Graphiti OSS self-host | OSS self-host only |
 | Bi-temporal `asOf` queries | Yes | Limited | Yes (via Graphiti) | No |
 | Knowledge graph (entities + relations) | Native | Hybrid vector + graph | Native (Graphiti) | Vector only |
 | Multi-tenant isolated by default | Yes | Manual config | Manual config | Self-host |

@@ -5,11 +5,32 @@ on:
     branches: [main]
     paths:
       - 'templates/**/*.json'
+      - 'templates/**/*.md'
+      - 'examples/**'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'PRODUCTION_CHECKLIST.md'
+      - 'CONTRIBUTING.md'
+      - 'SECURITY.md'
+      - 'CODE_OF_CONDUCT.md'
+      - 'ECOSYSTEM.md'
+      - 'STATUS.md'
       - '.github/workflows/validate-workflows.yml'
   pull_request:
     branches: [main]
     paths:
       - 'templates/**/*.json'
+      - 'templates/**/*.md'
+      - 'examples/**'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'PRODUCTION_CHECKLIST.md'
+      - 'CONTRIBUTING.md'
+      - 'SECURITY.md'
+      - 'CODE_OF_CONDUCT.md'
+      - 'ECOSYSTEM.md'
+      - 'STATUS.md'
+      - '.github/workflows/validate-workflows.yml'
 
 jobs:
   validate:
@@ -113,15 +134,49 @@ jobs:
 
       - name: Em-dash guard
         run: |
-          # Em-dashes (—) are AI-content signature and forbidden in markdown + workflow.json.
-          # We fail the build if any non-skeleton README or workflow.json contains them.
+          # Em-dashes (U+2014) are AI-content signature and forbidden in markdown + workflow.json.
+          # Covers: templates/ (excluding _TEMPLATE skeleton), examples/, all root-level
+          # markdown files, and other CI workflow files. The skeleton _TEMPLATE/ is excluded
+          # because it contains placeholder em-dashes intentionally as part of the
+          # "what NOT to do" reminder for contributors. validate-workflows.yml itself
+          # is also excluded (referencing the U+2014 codepoint via $EMDASH below means
+          # the literal byte does not appear in this file's text).
           set -e
-          found=$(grep -rln "—" templates/ --include="*.md" --include="*.json" --exclude-dir=_TEMPLATE 2>/dev/null || true)
-          if [ -n "$found" ]; then
-            echo "FAIL: em-dash (—) found in:"
-            echo "$found"
+          EMDASH=$(printf '\xe2\x80\x94')
+          fail=0
+
+          found_templates=$(grep -rln "$EMDASH" templates/ --include="*.md" --include="*.json" --exclude-dir=_TEMPLATE 2>/dev/null || true)
+          if [ -n "$found_templates" ]; then
+            echo "FAIL: em-dash (U+2014) found in templates/:"
+            echo "$found_templates"
+            fail=1
+          fi
+
+          # Root-level markdown + examples/
+          for f in README.md CHANGELOG.md PRODUCTION_CHECKLIST.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md ECOSYSTEM.md STATUS.md; do
+            if [ -f "$f" ] && grep -q "$EMDASH" "$f"; then
+              echo "FAIL: em-dash (U+2014) found in $f"
+              fail=1
+            fi
+          done
+
+          for f in examples/*.md examples/*.json; do
+            if [ -f "$f" ] && grep -q "$EMDASH" "$f"; then
+              echo "FAIL: em-dash (U+2014) found in $f"
+              fail=1
+            fi
+          done
+
+          for f in .github/workflows/smoke-test-snippets.yml; do
+            if [ -f "$f" ] && grep -q "$EMDASH" "$f"; then
+              echo "FAIL: em-dash (U+2014) found in $f"
+              fail=1
+            fi
+          done
+
+          if [ $fail -eq 1 ]; then
             echo ""
-            echo "Replace with comma, period, or parenthesis."
+            echo "Replace em-dashes with comma, period, or parenthesis."
             exit 1
           fi
-          echo "OK: no em-dashes in templates/"
+          echo "OK: no em-dashes in templates/, examples/, root markdown, or peer CI workflows"

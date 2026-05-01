@@ -70,7 +70,7 @@ The result is a voice agent that knows your customer the second time they call. 
 
 The error branch is always wired. The `Has Phone?` IF is also always wired so anonymous calls never pollute Memory with `null:caller` entities or queries. The opt-in guards (Verify Webhook, Rate Limit, Idempotency) pass through when their env vars are unset, so the default import boots clean.
 
-The two memory-write nodes (`Memory: Observe` + `Memory: Learn Outcome`) run **after** `Respond to Voice Provider` has already returned the reply, so they don't add latency to the call. n8n's `executionOrder: v1` walks the graph breadth-first from `Normalize LLM Output`, hitting `Respond to Voice Provider` first because it's wired ahead of `Has Phone? (post)` in the connections array. This is execution-order-dependent, not a hard async guarantee. For a stricter "respond first, persist later" contract use a separate Execute-Workflow trigger or a queue (Redis, BullMQ).
+The two memory-write nodes (`Memory: Observe` + `Memory: Learn Outcome`) sit on a parallel branch downstream of `Normalize LLM Output`. n8n's `executionOrder: v1` runs each branch depth-first (one branch completes before the next starts) and orders branches by canvas position (top-to-bottom, then left-to-right). `Respond to Voice Provider` is positioned ahead of the memory-write branch on the canvas, so it executes first and the voice provider receives the reply before the memory writes start. This is execution-order-dependent, not a hard async guarantee. For a stricter "respond first, persist later" contract use a separate Execute-Workflow trigger or a queue (Redis, BullMQ, n8n Queue Mode).
 
 ## Memory model
 
@@ -83,6 +83,8 @@ The two memory-write nodes (`Memory: Observe` + `Memory: Learn Outcome`) run **a
 This three-layer model means you can later run `entity.open` to get a full caller dossier, `memory.search` with `recencyWeight: 0.5` to pull recent decisions, or `insight.synthesize` to generate a weekly summary across all callers.
 
 ## Setup
+
+> **Self-host gotcha (read first):** the Verify Webhook Code node calls `require('crypto')` for HMAC-SHA256. Self-hosted n8n restricts Node.js builtin imports in Code nodes by default, so you MUST set `NODE_FUNCTION_ALLOW_BUILTIN=crypto` in your n8n environment. Without it, every signed webhook fails with `Cannot find module 'crypto'`. n8n Cloud's allowlist is not publicly documented for individual builtins; verify in your instance with a one-line `require('crypto')` test before enabling HMAC in production. Reference: [n8n Docs - Modules in Code node](https://docs.n8n.io/hosting/configuration/configuration-examples/modules-in-code-node/). See [PRODUCTION_CHECKLIST.md](../../PRODUCTION_CHECKLIST.md) for the full env-var list.
 
 1. **Install the StudioMeyer Memory community node** in your n8n instance:
    ```bash
@@ -142,7 +144,7 @@ Per call (assuming ~30s of conversation, ~500 input + 200 output tokens):
 
 | Component | Cost (Stand 2026-04) | Per-call cost |
 |---|---|---|
-| **StudioMeyer Memory** | EUR 0 / 29 / 49 per month | Free tier: 10k ops/mo (~2500 calls). Pro tier: unlimited. |
+| **StudioMeyer Memory** | EUR 0 / 29 / 49 per month | Free tier: 200 credits (one credit per op, ~50 voice calls). Pro tier: unlimited. |
 | **OpenAI gpt-5-mini** (default) | $0.25 / 1M input + $2.00 / 1M output | ~$0.0005 per call |
 | **Anthropic claude-haiku-4-5** | $1 / 1M input + $5 / 1M output | ~$0.0015 per call |
 | Vapi or Retell | provider varies | ~$0.07-0.15 per minute |
@@ -165,7 +167,7 @@ The error branch fires on LLM failures (rate limit, 5xx). It writes one extra Me
 - **Transcript is empty for short calls.** Vapi sends `end-of-call-report` even for 2-second calls where nothing was said. The LLM still replies with an empty user message. Either add a guard in `Normalize Payload` to skip when transcript is empty, or accept the noise as a graceful default reply.
 - **Multiple calls in flight.** n8n's default execution mode is fire-and-forget per webhook trigger. If the same caller calls twice in 30 seconds, both runs may see "0 entities" on the first lookup (race condition). Memory's gatekeeper deduplicates on the entity-create side, so you don't get duplicate `caller` entities, but the second call's "first call" observation is technically wrong. For high-volume use, enable Idempotency Check via `IDEMPOTENCY_ENABLED=1` (catches retries on the same `callId`) and consider the `entity.observe` with auto-create fallback (Memory v3.17 feature, in private beta).
 - **Anthropic node type-string.** The Anthropic Reply node uses `@n8n/n8n-nodes-langchain.anthropic` (the LangChain-vendored direct-API node), not `n8n-nodes-base.anthropic` (which does not exist in n8n core and produces "Unrecognized node type" on activation). The OpenAI counterpart is the core `n8n-nodes-base.openAi` (verified working in n8n 2.15.0). If you fork this template and a Reply branch fails to activate, double-check the type-string against your n8n version.
-- **Memory writes are execution-order-dependent, not strictly async.** The two memory-write nodes (`Memory: Observe` + `Memory: Learn Outcome`) live downstream of `Has Phone? (post)`, which itself is wired in parallel to `Respond to Voice Provider` after `Normalize LLM Output`. n8n's `executionOrder: v1` walks breadth-first and hits `Respond` first because it's listed first in the connections array. The voice provider gets the reply in time, then the memory writes happen. This is execution-order-dependent. For a stricter "respond first, persist always-after" contract, route the writes through a separate Execute-Workflow trigger or a queue (Redis, BullMQ).
+- **Memory writes are execution-order-dependent, not strictly async.** The two memory-write nodes (`Memory: Observe` + `Memory: Learn Outcome`) live downstream of `Has Phone? (post)`, which itself is on a parallel branch to `Respond to Voice Provider` after `Normalize LLM Output`. n8n's `executionOrder: v1` runs each branch depth-first and orders branches by canvas position (top-to-bottom, left-to-right). `Respond` is positioned ahead of the memory-write branch on the canvas so the voice provider gets the reply first, then the memory writes happen. **If you reposition nodes the order can change.** This is execution-order-dependent, not a hard async guarantee. For a stricter "respond first, persist always-after" contract, route the writes through a separate Execute-Workflow trigger or a queue (Redis, BullMQ, n8n Queue Mode).
 
 ## Production patterns
 
@@ -183,7 +185,7 @@ Four patterns ship in `workflow.json` as actual nodes, three opt-in via env vars
 
 ## Hard compatibility floor
 
-**Minimum n8n version: 2.10.1** (CVE-2026-27493 fix). Older versions of n8n have an unauthenticated RCE vulnerability in Form nodes. This template does not use Form nodes itself, but you should still upgrade for general security. Older 1.x users: upgrade to 1.123.22 LTS or later. The pre-activation check on n8n 2.15.0 was used to validate every node type-string in this template.
+**Minimum n8n version with CVE-2026-27493 fix:** >= 2.9.3 (stable channel) / >= 2.10.1 (latest / beta channel) / >= 1.123.22 (1.x LTS). CVE-2026-27493 is an unauthenticated RCE in Form nodes (CVSS 9.5). This template does not use Form nodes itself, but you should still upgrade for general security. The pre-activation check on n8n 2.15.0 was used to validate every node type-string in this template.
 
 ## Tech stack matrix
 
@@ -191,7 +193,7 @@ Four patterns ship in `workflow.json` as actual nodes, three opt-in via env vars
 |---|---|---|---|---|
 | n8n | >= 2.10.1 (CVE-2026-27493 floor) | self-hosted free / Cloud $20/mo | n8n Cloud trial | always |
 | n8n-nodes-studiomeyer-memory | >= 0.1.0 | free | n/a | always |
-| StudioMeyer Memory | API key | EUR 0 / 29 / 49 | 10k ops/month | always |
+| StudioMeyer Memory | API key | EUR 0 / 29 / 49 | 200 credits (one per op) | always |
 | OpenAI (default) | gpt-5-mini | $0.25 / 1M input + $2.00 / 1M output | $5 trial credit | provider = openai |
 | Anthropic | claude-haiku-4-5 | $1 / 1M input + $5 / 1M output | $5 trial credit | provider = anthropic |
 | Vapi or Retell | latest stable | varies | trial available | always |
@@ -219,7 +221,7 @@ Memory layers a 2026 builder considers for an n8n voice agent:
 |---|---|---|---|---|
 | Verified n8n custom node | Yes (this repo, npm provenance) | Community HTTP node | Community node | Third-party node |
 | Reference templates ship | 8 templates in this repo | Reddit posts only (Mem0+Vapi+n8n got 6 upvotes) | Some | None curated |
-| Free tier | 10k ops/mo | 10K memories + 1K retrieval calls/mo | 1k credits/mo cloud + Graphiti OSS self-host | OSS self-host only |
+| Free tier | 200 credits (one per op) | 10K memories + 1K retrieval calls/mo | 1k credits/mo cloud + Graphiti OSS self-host | OSS self-host only |
 | Bi-temporal `asOf` queries | Yes | Limited | Yes (via Graphiti) | No |
 | Knowledge graph (entities + relations) | Native | Hybrid vector + graph | Native (Graphiti) | Vector only |
 | E.164-normalized caller key | Yes (`Entity` of `entityType: caller`) | Manual | Manual | Manual |

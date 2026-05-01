@@ -27,7 +27,7 @@ Voice agents · customer support · personal assistants · cross-session memory 
 
 Without persistent memory every AI interaction starts from zero. Voice agents forget callers. Support bots ask returning customers their email three times. Personal assistants miss the project context you discussed yesterday.
 
-These templates fix that. Each workflow follows the same loop: **search the memory, reason with the context, write the outcome back**. Memory is provided by [StudioMeyer Memory](https://memory.studiomeyer.io), a hosted MCP backend with a knowledge graph, semantic search, and multi-tenant isolation. Free tier covers about 10 000 operations per month.
+These templates fix that. Each workflow follows the same loop: **search the memory, reason with the context, write the outcome back**. Memory is provided by [StudioMeyer Memory](https://memory.studiomeyer.io), a hosted MCP backend with a knowledge graph, semantic search, and multi-tenant isolation. Free tier is 200 free credits (one credit per operation) activated by one click in the portal at [studiomeyer.io/portal/login](https://studiomeyer.io/portal/login), no card required.
 
 Each template is multi-provider out of the box. Pick OpenAI (default `gpt-5-mini`) or Anthropic (`claude-haiku-4-5`) with one click. Add a third branch for Gemini or local Ollama by adding one Switch rule. Memory writes stay identical regardless of which LLM you picked.
 
@@ -51,13 +51,15 @@ Detailed walkthrough per template lives inside each `templates/NN-slug/README.md
 
 ## Templates
 
-### Tier 1 · Maximum ROI · Live
+### Tier 1 · Maximum ROI · Hardened (v0.4.0-prep)
 
-| # | Template | Trigger | Memory pattern | LLM |
-|---|---|---|---|---|
-| 1 | [Voice Agent Cross-Session Memory](./templates/01-voice-agent-cross-session-memory/) | Vapi / Retell webhook | entity.search → entity.observe | Multi-provider |
-| 2 | [AI Customer Support with History](./templates/02-customer-support-with-history/) | Telegram (swappable for WhatsApp / Slack) | entity.search → entity.open dossier | Multi-provider |
-| 3 | [Personal Assistant Long-Term Memory](./templates/03-personal-assistant-long-term-memory/) | Telegram with intent classifier | memory.search → memory.synthesize | Multi-provider |
+All three ship the four opt-in production patterns (HMAC verify, rate limit, idempotency, error branches) as actual nodes plus an always-on error branch. T02 + T03 are live-verified against `memory.studiomeyer.io`. T01 awaits an end-to-end Vapi/Retell smoke trace before the distribution push. See [STATUS.md](./STATUS.md) for ground truth.
+
+| # | Template | Trigger | Memory pattern | LLM | Status |
+|---|---|---|---|---|---|
+| 1 | [Voice Agent Cross-Session Memory](./templates/01-voice-agent-cross-session-memory/) | Vapi / Retell webhook | entity.search → entity.observe | Multi-provider | Hardened, E2E-pending |
+| 2 | [AI Customer Support with History](./templates/02-customer-support-with-history/) | Telegram (swappable for WhatsApp / Slack) | entity.search → entity.open dossier | Multi-provider | Hardened, live-verified |
+| 3 | [Personal Assistant Long-Term Memory](./templates/03-personal-assistant-long-term-memory/) | Telegram with intent classifier | memory.search → memory.synthesize | Multi-provider | Hardened, live-verified |
 
 ### Tier 2 · Reference cases · Coming next
 
@@ -111,7 +113,7 @@ The LLM branches converge into a single Code node that extracts `replyText` from
 
 Every template needs:
 
-1. **n8n instance at version 2.10.1 or higher** (Cloud, self-hosted, or Docker). 2.10.1 is the floor because of CVE-2026-27493 (unauthenticated RCE in Form nodes, fixed Feb 2026). 1.x users: upgrade to 1.123.22 or later. None of these templates use Form nodes themselves, but you should not run a vulnerable n8n in any case.
+1. **n8n instance with the CVE-2026-27493 fix applied.** That means **>= 2.9.3** on the 2.x stable channel (the default n8n.io ships), **>= 2.10.1** on the 2.x latest/beta channel, or **>= 1.123.22** on the 1.x LTS channel. CVE-2026-27493 is an unauthenticated RCE in Form nodes (CVSS 9.5, fixed Feb 2026). None of these templates use Form nodes themselves, but you should not run a vulnerable n8n in any case. Cloud, self-hosted, and Docker installs all qualify as long as the version floor is met.
 2. **The community node** installed: `npm install n8n-nodes-studiomeyer-memory` for self-hosted, or via *Settings → Community Nodes* on n8n Cloud.
 3. **A free API key** from [memory.studiomeyer.io/dashboard/keys](https://memory.studiomeyer.io/dashboard/keys). Add as credential `StudioMeyer Memory API`.
 4. **An LLM credential** in n8n. OpenAI (default for these templates) or Anthropic. Free tiers from both providers cover the Tier 1 workloads.
@@ -169,13 +171,13 @@ The middle four rows are the gap. We close them with snippet-level documentation
 
 **Why two LLM providers?** Provider lock-in is bad for the builder. OpenAI rate-limits during product launches, Anthropic has had outages, Gemini hallucinates differently than both. The `Set Provider` node lets you swap with one click. We pick OpenAI as default because that's the bigger audience.
 
-**Why n8n 2.10.1 as the floor?** [CVE-2026-27493](https://nvd.nist.gov/vuln/detail/CVE-2026-27493) (CVSS 9.5) is an unauthenticated RCE in Form nodes, fixed Feb 2026. We do not use Form nodes, but you should not run a vulnerable n8n in any case.
+**Why a hard n8n version floor?** [CVE-2026-27493](https://nvd.nist.gov/vuln/detail/CVE-2026-27493) (CVSS 9.5) is an unauthenticated RCE in Form nodes, fixed Feb 2026. The patch is in **2.9.3 (stable channel)**, **2.10.1 (latest channel)**, and **1.123.22 (LTS channel)**. The README badge shows 2.10.1+ as the simplest single-line ask, but any of the three patched-version-or-newer combinations works. We do not use Form nodes ourselves, but you should not run a vulnerable n8n in any case.
 
 **Can I use this with n8n Cloud?** Yes. All templates run unchanged on n8n Cloud, n8n Self-Hosted, n8n Docker, and the n8n Desktop app. The community node `n8n-nodes-studiomeyer-memory` installs via *Settings → Community Nodes* on Cloud. Webhook trigger URLs are auto-generated by n8n.
 
-**What's the cost per execution?** Roughly $0.002 to $0.007 depending on which template, provider, and reply length. Detailed cost tables in each template's README. The free Memory tier (10k ops / month) plus OpenAI / Anthropic free credits cover several thousand executions before you spend anything.
+**What's the cost per execution?** Roughly $0.002 to $0.007 depending on which template, provider, and reply length. Detailed cost tables in each template's README. The free Memory tier (200 credits, one credit per operation) plus OpenAI / Anthropic free credits covers an evaluation run; for production volumes Pro at EUR 29/mo lifts the cap.
 
-**Are these production-ready?** Honest answer: production-pattern hardened in v0.4.0-prep, not a one-click production deploy yet. Templates 02 and 03 ship the four opt-in production patterns (idempotency, error branches, webhook security, rate limit) as actual nodes in `workflow.json`, gated by env vars and pass-through by default. Memory de-dup is server-side. Template 01 (Voice Agent) is on the same hardening path but ships in the next pass and is treated as developer-preview until then. CI blocks workflow.json files with em-dashes, missing references, the n8n-API-rejected `meta`/`staticData`/`versionId`/`id`/`tags` keys, and obvious credential leaks (literal API keys, Bearer tokens, JWTs). All three Tier-1 templates promote to "production-ready" in the same release cycle.
+**Are these production-ready?** Honest answer: production-pattern hardened in v0.4.0-prep, not a one-click production deploy yet. **All three Tier-1 templates** ship the four opt-in production patterns (idempotency, error branches, webhook security, rate limit) as actual nodes in `workflow.json`, gated by env vars and pass-through by default. Memory de-dup is server-side. Template 01 (Voice Agent) is at the same code-level hardening as 02 + 03 but is the only one without an end-to-end live smoke test against a real Vapi or Retell account yet, which is the gating item for the v0.4.0 final release and the distribution push. See [STATUS.md](./STATUS.md) for the per-template ground truth and [PRODUCTION_CHECKLIST.md](./PRODUCTION_CHECKLIST.md) for the env vars + signing secrets + Node-builtin allowlist + monitoring you need before flipping these to production. CI blocks workflow.json files with em-dashes, missing references, the n8n-API-rejected `meta`/`staticData`/`versionId`/`id`/`tags` keys, and obvious credential leaks (literal API keys, Bearer tokens, JWTs). All three templates promote to "production-ready" in the same release cycle when Template 01 ships its E2E voice smoke trace.
 
 **How do I contribute?** Open a [template request issue](https://github.com/studiomeyer-io/n8n-templates/issues/new?template=template_request.md) so we can confirm scope. Then copy `templates/_TEMPLATE/`, fill it in, smoke-test in your own n8n, open a PR. The [CONTRIBUTING.md](./CONTRIBUTING.md) covers the full bar.
 
@@ -207,6 +209,8 @@ The reason we hold submissions back is the production-patterns gap above. Templa
 ```
 n8n-templates/
 ├── README.md                       # this file
+├── STATUS.md                       # per-template ground truth (hardened / pending)
+├── PRODUCTION_CHECKLIST.md         # env vars + secret tokens + monitoring before launch
 ├── ECOSYSTEM.md                    # the rest of the StudioMeyer toolkit
 ├── CHANGELOG.md
 ├── CODE_OF_CONDUCT.md
@@ -217,7 +221,12 @@ n8n-templates/
 │   ├── FUNDING.yml
 │   ├── ISSUE_TEMPLATE/             # bug + template-request
 │   ├── PULL_REQUEST_TEMPLATE.md
-│   └── workflows/                  # CI: workflow validation, em-dash guard
+│   └── workflows/                  # CI: workflow validation, em-dash guard, smoke-test stub
+├── examples/                       # sample provider payloads for smoke-testing
+│   ├── README.md                   # how to use the payloads (curl recipes)
+│   ├── vapi-end-of-call.json
+│   ├── retell-call-ended.json
+│   └── telegram-message.json
 └── templates/
     ├── _TEMPLATE/                  # skeleton for new contributions
     ├── 01-voice-agent-cross-session-memory/
@@ -270,6 +279,25 @@ We welcome new templates that solve a real workflow problem. The process:
 3. Copy `templates/_TEMPLATE/` to a new folder, fill it in, smoke-test in your own n8n instance, open a PR.
 
 The PR template includes the per-template checklist. Reviewers verify structure first, content second.
+
+## Why trust the Memory backend
+
+Every template in this repo depends on the [n8n-nodes-studiomeyer-memory](https://github.com/studiomeyer-io/n8n-nodes-studiomeyer-memory) community node and the hosted [memory.studiomeyer.io](https://memory.studiomeyer.io) service. Before you wire either into a production workflow, here is what you can verify externally:
+
+| Trust signal | Evidence |
+|---|---|
+| **Custom node on npm with provenance** | [n8n-nodes-studiomeyer-memory](https://www.npmjs.com/package/n8n-nodes-studiomeyer-memory) · published with `--provenance` via GitHub Actions OIDC, shasum verifiable on npm's site |
+| **Custom node source + changelog** | [github.com/studiomeyer-io/n8n-nodes-studiomeyer-memory](https://github.com/studiomeyer-io/n8n-nodes-studiomeyer-memory) · MIT, 58 vitest tests covering tool-call mapping + SSRF guard + result parsing, agent-code-review hardening passes documented in CHANGELOG |
+| **Security policy** | [SECURITY.md](https://github.com/studiomeyer-io/n8n-nodes-studiomeyer-memory/blob/main/README.md) on the node repo · 48-hour acknowledgement target, 7-day patch on high-severity |
+| **EU hosting + DSGVO** | Supabase Frankfurt (eu-central-1) · multi-tenant with App-Layer tenant_id isolation + Defense-in-Depth `rowsecurity=true` on every table · Hetzner Germany infra |
+| **Data export + delete** | Account holders can export full memory contents via the dashboard at [studiomeyer.io/portal/memory](https://studiomeyer.io/portal/memory) and trigger a hard-delete of the tenant via the same UI · DSGVO Art. 17 erasure path |
+| **Bi-temporal model** | Every `Learning` and `Decision` carries `valid_from` + `valid_to` plus a confidence score that decays over time. Stale facts fade automatically, contradictions are surfaced via `nex_contradictions` |
+| **Multi-tenant isolation** | Static-analysis CI guard `tenant-isolation-static.test.ts` blocks raw SQL without `tenant_id` filter at PR time · documented in [docs/claude/nex-memory-system.md](https://github.com/studiomeyer-io/) |
+| **API-key rotation** | Generate, list, and revoke keys at any time via the dashboard. Optional HMAC-SHA256 pepper (`NEX_API_KEY_PEPPER`) for self-hosted server defense-in-depth |
+| **Auth modes** | API Key (paste from dashboard) or OAuth 2.1 with PKCE access token. Discovery doc at [memory.studiomeyer.io/.well-known/oauth-authorization-server](https://memory.studiomeyer.io/.well-known/oauth-authorization-server) |
+| **Open source posture** | The custom node and these templates are MIT-licensed (use anywhere, commercial OK). The Memory **server** is hosted SaaS, not currently self-hostable. If self-host is a hard requirement for you, talk to us about a license. |
+
+If any of those trust signals do not meet your bar, do not wire these templates into production. The point of this section is that you can verify each one yourself in five minutes with no NDA.
 
 ## Related projects
 

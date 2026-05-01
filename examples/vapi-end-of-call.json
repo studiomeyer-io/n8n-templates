@@ -1,0 +1,61 @@
+{
+  "_comment": "Sample Vapi end-of-call-report payload for smoke-testing Template 01. Synthetic data based on the Vapi server-events documentation as of 2026-05. The Vapi schema places transcript/messages/recording under message.artifact.* and the summary under message.analysis.summary - NOT at the message root. Source: https://docs.vapi.ai/server-url/events and https://docs.vapi.ai/assistants/call-analysis. POST this body to your test-webhook URL with Content-Type: application/json. To exercise the HMAC verify path, also send the matching x-vapi-signature header (HMAC-SHA256 of the raw body, hex-encoded, signed with VAPI_SIGNING_SECRET).",
+  "message": {
+    "type": "end-of-call-report",
+    "endedReason": "customer-ended-call",
+    "call": {
+      "id": "call-7f3a9e21-4b82-4d6c-9e1f-2a8b3c4d5e6f",
+      "orgId": "org-abc123",
+      "createdAt": "2026-05-01T10:23:14.812Z",
+      "updatedAt": "2026-05-01T10:25:47.291Z",
+      "type": "inboundPhoneCall",
+      "phoneNumber": {
+        "number": "+34971555888",
+        "provider": "twilio"
+      },
+      "customer": {
+        "number": "+49170555444"
+      },
+      "assistantId": "assistant-xyz789",
+      "status": "ended",
+      "endedReason": "customer-ended-call"
+    },
+    "assistant": {
+      "id": "assistant-xyz789",
+      "name": "MallorcaBot Voice"
+    },
+    "phoneNumber": {
+      "number": "+34971555888"
+    },
+    "customer": {
+      "number": "+49170555444"
+    },
+    "startedAt": "2026-05-01T10:23:18.124Z",
+    "endedAt": "2026-05-01T10:25:47.291Z",
+    "durationSeconds": 149,
+    "durationMinutes": 2.48,
+    "cost": 0.187,
+    "artifact": {
+      "transcript": "User: Hi, I called yesterday about a tour booking for next weekend. Did you save my preferences?\nAssistant: Yes, I have your details. You asked about the Tramuntana hike for two people on Saturday morning. Would you like to confirm?\nUser: Yes please, lock it in for Saturday at 9am.\nAssistant: Done. I'll send the confirmation to the email you gave me last time. Anything else?\nUser: That's all, thanks.",
+      "messages": [
+        {"role": "user", "message": "Hi, I called yesterday about a tour booking for next weekend. Did you save my preferences?", "time": 1714559001000, "secondsFromStart": 3.4},
+        {"role": "assistant", "message": "Yes, I have your details. You asked about the Tramuntana hike for two people on Saturday morning. Would you like to confirm?", "time": 1714559008000, "secondsFromStart": 10.2},
+        {"role": "user", "message": "Yes please, lock it in for Saturday at 9am.", "time": 1714559017000, "secondsFromStart": 19.0},
+        {"role": "assistant", "message": "Done. I'll send the confirmation to the email you gave me last time. Anything else?", "time": 1714559022000, "secondsFromStart": 24.5},
+        {"role": "user", "message": "That's all, thanks.", "time": 1714559030000, "secondsFromStart": 32.1}
+      ],
+      "recordingUrl": "https://api.vapi.ai/call/call-7f3a9e21-4b82-4d6c-9e1f-2a8b3c4d5e6f/recording.wav",
+      "stereoRecordingUrl": "https://api.vapi.ai/call/call-7f3a9e21-4b82-4d6c-9e1f-2a8b3c4d5e6f/stereo.wav"
+    },
+    "analysis": {
+      "summary": "Returning customer (+49170555444) confirmed Tramuntana hiking tour booking for Saturday 9am, two people. Email confirmation sent.",
+      "structuredData": {
+        "intent": "booking_confirmation",
+        "tour": "tramuntana_hike",
+        "date": "2026-05-04",
+        "partySize": 2
+      },
+      "successEvaluation": "true"
+    }
+  }
+}
