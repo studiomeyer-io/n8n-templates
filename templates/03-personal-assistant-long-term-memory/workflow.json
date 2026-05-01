@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Personal Assistant with Long-Term Memory\n\n**Stack:** Telegram → intent classifier → either save-as-note OR memory-aware Q&A → reply.\n\n**Why this is different from a stateless ChatGPT bot:** Everything you tell it is permanently searchable. \"What did I say about the redesign on Monday?\" actually returns the right answer in March, even if Monday was three weeks ago.\n\n**Tool-use extensions (Calendar, Gmail, Notion)** are described in the README and can be added as additional Switch branches without changing the memory loop.",
+        "content": "## Personal Assistant with Long-Term Memory\n\n**Stack:** Telegram \u2192 intent classifier \u2192 either save-as-note OR memory-aware Q&A \u2192 reply.\n\n**Why this is different from a stateless ChatGPT bot:** Everything you tell it is permanently searchable. \"What did I say about the redesign on Monday?\" actually returns the right answer in March, even if Monday was three weeks ago.\n\n**Tool-use extensions (Calendar, Gmail, Notion)** are described in the README and can be added as additional Switch branches without changing the memory loop.",
         "height": 320,
         "width": 480,
         "color": 6
@@ -457,7 +457,7 @@
     },
     {
       "parameters": {
-        "content": ">> SET ME <<\n\n**Default intent is `ask`** for any text without a slash command.\n\nUsers can also send:\n- `/note <anything>`, store as a learning, no LLM call\n- `/ask <question>`, explicit Q&A path\n- `/summary <topic>`, runs `Memory: Synthesize` for a topic cluster summary\n\nExamples:\n- `/note redesign meeting Monday: agreed on Plan B, push to next sprint`\n- `What did I decide about the redesign?` → searches memory + answers\n- `/summary redesign` → multi-week cluster summary",
+        "content": ">> SET ME <<\n\n**Default intent is `ask`** for any text without a slash command.\n\nUsers can also send:\n- `/note <anything>`, store as a learning, no LLM call\n- `/ask <question>`, explicit Q&A path\n- `/summary <topic>`, runs `Memory: Synthesize` for a topic cluster summary\n\nExamples:\n- `/note redesign meeting Monday: agreed on Plan B, push to next sprint`\n- `What did I decide about the redesign?` \u2192 searches memory + answers\n- `/summary redesign` \u2192 multi-week cluster summary",
         "height": 320,
         "width": 380,
         "color": 5
@@ -626,13 +626,6 @@
         [
           {
             "node": "Memory: Synthesize",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Memory: Search Context",
             "type": "main",
             "index": 0
           }

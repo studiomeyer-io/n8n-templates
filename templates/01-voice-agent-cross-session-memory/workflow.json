@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Voice Agent with Cross-Session Memory (Multi-Provider)\n\n**Stack:** Vapi/Retell webhook → StudioMeyer Memory → LLM (you choose: OpenAI, Anthropic, or any provider) → reply + persist outcome.\n\n**Multi-Provider Switch:** the `Set Provider` node decides which LLM responds. Default is `openai`. Change to `anthropic` (or add your own branch) without rebuilding the rest of the workflow.\n\n**Memory model:** Each unique caller phone becomes an `Entity` of type `caller`. Every call appends an observation. The next call retrieves the caller's history before the LLM speaks.",
+        "content": "## Voice Agent with Cross-Session Memory (Multi-Provider)\n\n**Stack:** Vapi/Retell webhook \u2192 StudioMeyer Memory \u2192 LLM (you choose: OpenAI, Anthropic, or any provider) \u2192 reply + persist outcome.\n\n**Multi-Provider Switch:** the `Set Provider` node decides which LLM responds. Default is `openai`. Change to `anthropic` (or add your own branch) without rebuilding the rest of the workflow.\n\n**Memory model:** Each unique caller phone becomes an `Entity` of type `caller`. Every call appends an observation. The next call retrieves the caller's history before the LLM speaks.",
         "height": 320,
         "width": 480,
         "color": 6
@@ -365,7 +365,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\n  \"reply\": \"{{ $json.replyText }}\",\n  \"caller_phone\": \"{{ $('Normalize Payload').item.json.callerPhone }}\",\n  \"call_id\": \"{{ $('Normalize Payload').item.json.callId }}\",\n  \"provider\": \"{{ $json.provider }}\"\n}",
+        "responseBody": "={{ JSON.stringify({ reply: $json.replyText, caller_phone: $('Normalize Payload').item.json.callerPhone, call_id: $('Normalize Payload').item.json.callId, provider: $json.provider }) }}",
         "options": {}
       },
       "id": "voice-11-respond",

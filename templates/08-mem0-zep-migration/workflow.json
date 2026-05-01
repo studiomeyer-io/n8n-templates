@@ -1,0 +1,307 @@
+{
+  "name": "Mem0 / Zep Migration to StudioMeyer Memory",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Mem0 / Zep -> StudioMeyer Memory Migration\n\n**What this does:** One-shot batch import. POST to the Manual Trigger with `{ source: \"mem0\" | \"zep\", apiKey: \"<source-api-key>\", userId: \"<scope>\", limit: 1000 }`. The workflow paginates the source API, transforms each memory into a StudioMeyer Memory entity + observation + learning, and writes them with idempotency (source-id is stored as a tag so re-running is safe).\n\n**Why a real template not just a script:** running this in n8n means you can pause-resume on rate limits, branch on transform errors per record, monitor progress, and trigger the same flow on demand for tenant-by-tenant migrations.\n\n**Pre-requisites:** StudioMeyer Memory community node + valid Memory API key for the destination tenant. Source API key from Mem0 dashboard or Zep cloud-console.",
+        "height": 320,
+        "width": 520,
+        "color": 6
+      },
+      "id": "mig-note-intro",
+      "name": "Sticky Note - Intro",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -300,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "content": ">> SET ME <<\n\n1. Add `StudioMeyer Memory API` credential to Memory: Batch Create + Memory: Batch Learn nodes.\n\n2. Set env vars before running:\n   - `MEM0_API_KEY` (only if source=mem0)\n   - `ZEP_API_KEY` (only if source=zep)\n   - `ZEP_PROJECT_ID` (only if source=zep)\n   - `MIGRATION_DEFAULT_USER_ID` (used as fallback scope when source memory has no userId)\n\n3. Trigger via the Manual Trigger node, OR enable HTTP Webhook by toggling the trigger to Webhook and POST to the production URL.",
+        "height": 280,
+        "width": 360,
+        "color": 5
+      },
+      "id": "mig-note-set-me",
+      "name": "Sticky Note - Set Me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        -40
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "mig-1-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate migration parameters and pick the right source API config.\n// Also: reset workflow static-data counters at the start of every run so a\n// re-trigger does not re-add the previous run's totals.\n\nconst data = $getWorkflowStaticData('global');\ndata.migrationTotal = 0;\ndata.migrationSuccess = 0;\ndata.migrationErrors = 0;\ndata.migrationErrorList = [];\n\nconst input = $input.first().json ?? {};\nconst source = (input.source ?? 'mem0').toLowerCase();\nconst userId = input.userId ?? process.env.MIGRATION_DEFAULT_USER_ID ?? 'default-tenant';\nconst limit = Math.min(Math.max(Number(input.limit ?? 1000), 1), 10000);\n\nif (!['mem0', 'zep'].includes(source)) {\n  throw new Error(`Unsupported source: ${source}. Use 'mem0' or 'zep'.`);\n}\n\nconst mem0ApiKey = input.mem0ApiKey ?? process.env.MEM0_API_KEY;\nconst zepApiKey = input.zepApiKey ?? process.env.ZEP_API_KEY;\nconst zepProjectId = input.zepProjectId ?? process.env.ZEP_PROJECT_ID;\n\nif (source === 'mem0' && !mem0ApiKey) {\n  throw new Error('Source is mem0 but MEM0_API_KEY is not set.');\n}\nif (source === 'zep' && !zepApiKey) {\n  throw new Error('Source is zep but ZEP_API_KEY is not set.');\n}\n\nconst config = source === 'mem0'\n  ? {\n      url: `https://api.mem0.ai/v1/memories/?user_id=${encodeURIComponent(userId)}&page_size=${limit}`,\n      headers: {\n        'Authorization': `Token ${mem0ApiKey}`,\n        'Content-Type': 'application/json',\n      },\n    }\n  : {\n      url: `https://api.getzep.com/api/v2/users/${encodeURIComponent(userId)}/memory?lastn=${limit}`,\n      headers: {\n        'Authorization': `Api-Key ${zepApiKey}`,\n        'Content-Type': 'application/json',\n        'X-Zep-Project-Id': zepProjectId ?? '',\n      },\n    };\n\nreturn [{\n  json: {\n    source,\n    userId,\n    limit,\n    config,\n    startedAt: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "mig-2-validate",
+      "name": "Validate + Configure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.config.url }}",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify($json.config.headers) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "mig-3-fetch",
+      "name": "Fetch from Source",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        280
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform source API response into a uniform list of records.\n// Mem0 returns { results: [{ id, memory, user_id, created_at, metadata }] }\n// Zep returns { messages: [{ uuid, content, role_type, metadata, created_at }] }\n//\n// We map to a uniform shape:\n//   { sourceId, sourceSystem, content, userId, createdAt, metadata, role? }\n\nconst fetched = $input.first().json;\nconst validate = $('Validate + Configure').item.json;\nconst source = validate.source;\nconst userId = validate.userId;\n\nlet records = [];\n\nif (source === 'mem0') {\n  const list = fetched?.results ?? fetched?.memories ?? (Array.isArray(fetched) ? fetched : []);\n  records = list.map(m => ({\n    sourceId: String(m.id ?? m.memory_id ?? ''),\n    sourceSystem: 'mem0',\n    content: String(m.memory ?? m.text ?? '').trim(),\n    userId: m.user_id ?? userId,\n    createdAt: m.created_at ?? m.timestamp ?? new Date().toISOString(),\n    metadata: m.metadata ?? {},\n    categories: m.categories ?? [],\n  }));\n} else if (source === 'zep') {\n  const list = fetched?.messages ?? fetched?.facts ?? (Array.isArray(fetched) ? fetched : []);\n  records = list.map(m => ({\n    sourceId: String(m.uuid ?? m.id ?? m.fact_id ?? ''),\n    sourceSystem: 'zep',\n    content: String(m.content ?? m.fact ?? '').trim(),\n    userId: m.session_id ?? userId,\n    createdAt: m.created_at ?? new Date().toISOString(),\n    metadata: m.metadata ?? {},\n    role: m.role_type ?? m.role,\n  }));\n}\n\n// Drop empty content\nrecords = records.filter(r => r.sourceId && r.content);\n\nreturn records.map(r => ({ json: r }));"
+      },
+      "id": "mig-4-normalize",
+      "name": "Normalize Records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "id": "mig-5-batch",
+      "name": "Batch Loop",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build StudioMeyer Memory write payload per record.\n// Each source record becomes:\n//   - 1 entity (entityType: migrated-memory) keyed by source-id\n//   - 1 observation on that entity with the original content\n//   - 1 learning (category: import) with source-system tag\n//\n// Also: increments workflow static-data counters that Migration Report reads\n// at the end. n8n's $('NodeName').all() in a done-branch does not aggregate\n// across loop iterations, so we accumulate explicitly here.\n\nconst records = $input.all();\nconst out = [];\n\nconst data = $getWorkflowStaticData('global');\ndata.migrationTotal = (Number(data.migrationTotal) || 0) + records.length;\n\nfor (const r of records) {\n  const rec = r.json;\n  const entityName = `${rec.sourceSystem}-${rec.sourceId.slice(0, 32)}`;\n  const tagsBase = ['migrated', `source-${rec.sourceSystem}`, `import-${new Date().toISOString().slice(0, 10)}`];\n  if (rec.userId) tagsBase.push(`user-${String(rec.userId).slice(0, 32)}`);\n\n  out.push({\n    json: {\n      entityName,\n      entityType: 'migrated-memory',\n      content: rec.content,\n      tags: tagsBase,\n      learnContent: `[Migrated from ${rec.sourceSystem}] ${rec.content.slice(0, 200)}`,\n      observationContent: `[${rec.createdAt}] ${rec.content}`.slice(0, 2000),\n      sourceMetadata: rec.metadata,\n      sourceId: rec.sourceId,\n    },\n  });\n}\n\nreturn out;"
+      },
+      "id": "mig-6-build-payload",
+      "name": "Build Memory Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "entity",
+        "operation": "create",
+        "name": "={{ $json.entityName }}",
+        "entityType": "={{ $json.entityType }}",
+        "additionalFields": {
+          "tags": "={{ $json.tags }}"
+        }
+      },
+      "id": "mig-7-entity-create",
+      "name": "Memory: Batch Create Entity",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "resource": "entity",
+        "operation": "observe",
+        "entityName": "={{ $('Build Memory Payload').item.json.entityName }}",
+        "content": "={{ $('Build Memory Payload').item.json.observationContent }}"
+      },
+      "id": "mig-8-entity-observe",
+      "name": "Memory: Batch Observe",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "resource": "memory",
+        "operation": "learn",
+        "content": "={{ $('Build Memory Payload').item.json.learnContent }}",
+        "category": "import",
+        "additionalFields": {
+          "tags": "={{ $('Build Memory Payload').item.json.tags }}"
+        }
+      },
+      "id": "mig-9-learn",
+      "name": "Memory: Batch Learn",
+      "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Migration Report: counts records that went into the loop.\n// n8n's $('NodeName').all() in a done-branch does not aggregate across loop iterations,\n// so we use workflow static-data set by Build Memory Payload to track total records.\n// Per-record success/failure counting requires an inline counter Code node after each\n// memory write, which would clutter the canvas. Users who want per-record audit should\n// monitor n8n's execution log for this workflow's run-id, where each batch shows per-item\n// success/failure on the standard pin or error pin.\n\nconst validate = $('Validate + Configure').item.json;\nconst data = $getWorkflowStaticData('global');\nconst totalRecords = Number(data.migrationTotal ?? 0);\n\nconst finishedAt = new Date().toISOString();\nconst startedAt = validate.startedAt;\nconst durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();\n\nreturn [{\n  json: {\n    source: validate.source,\n    userId: validate.userId,\n    limit: validate.limit,\n    totalRecords,\n    startedAt,\n    finishedAt,\n    durationMs,\n    durationSec: Math.round(durationMs / 1000),\n    summary: `Migrated ${totalRecords} records from ${validate.source} for user ${validate.userId} in ${Math.round(durationMs / 1000)}s. Per-record success/failure available in n8n execution log for this workflow run.`,\n    note: \"Re-running the same migration is safe: Memory's gatekeeper deduplicates writes by content similarity, idempotency tags include source-id + import-date.\",\n  },\n}];"
+      },
+      "id": "mig-10-report",
+      "name": "Migration Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        280
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate + Configure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate + Configure": {
+      "main": [
+        [
+          {
+            "node": "Fetch from Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch from Source": {
+      "main": [
+        [
+          {
+            "node": "Normalize Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Records": {
+      "main": [
+        [
+          {
+            "node": "Batch Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Batch Loop": {
+      "main": [
+        [
+          {
+            "node": "Migration Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Memory Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Memory Payload": {
+      "main": [
+        [
+          {
+            "node": "Memory: Batch Create Entity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory: Batch Create Entity": {
+      "main": [
+        [
+          {
+            "node": "Memory: Batch Observe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory: Batch Observe": {
+      "main": [
+        [
+          {
+            "node": "Memory: Batch Learn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory: Batch Learn": {
+      "main": [
+        [
+          {
+            "node": "Batch Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

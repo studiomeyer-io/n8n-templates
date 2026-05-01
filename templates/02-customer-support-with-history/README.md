@@ -52,7 +52,7 @@ The bot now has institutional memory. The third time a customer writes "my login
             ┌────────┴─────────┐
             ▼                  ▼
    [OpenAI Reply]      [Anthropic Reply]
-   gpt-5-mini default  claude-haiku-4-5
+   gpt-5.4-mini default  claude-haiku-4-5
    onError: continue   onError: continue
    │       │           │       │
  success error       success error
@@ -92,7 +92,7 @@ The dual write (observation + learning) costs you one extra memory op per ticket
 3. **Add credentials in n8n:**
    - StudioMeyer Memory API → API Key from [memory.studiomeyer.io/dashboard/keys](https://memory.studiomeyer.io/dashboard/keys).
    - Telegram → paste the bot token.
-   - OpenAI API (default provider) → key from [platform.openai.com](https://platform.openai.com), `gpt-5-mini` is the current default mini tier.
+   - OpenAI API (default provider) → key from [platform.openai.com](https://platform.openai.com), `gpt-5.4-mini` is the current default mini tier (May 2026).
    - Anthropic API (alternative provider) → key from [console.anthropic.com](https://console.anthropic.com), `claude-haiku-4-5` is the current Haiku tier (faster and cheaper than Sonnet for support replies).
 
 4. **Import the workflow** (`workflow.json` in this folder).
@@ -116,7 +116,7 @@ In each case, update the `Extract Customer Key` Code node to read the right fiel
 
 ## Multi-provider switch
 
-The workflow ships with two providers wired in parallel: OpenAI `gpt-5-mini` (default) and Anthropic `claude-haiku-4-5`. Pick one or run both behind a feature flag.
+The workflow ships with two providers wired in parallel: OpenAI `gpt-5.4-mini` (default) and Anthropic `claude-haiku-4-5`. Pick one or run both behind a feature flag.
 
 **Switch from OpenAI to Anthropic:**
 
@@ -150,10 +150,10 @@ The error branch and Memory writes stay identical, you only add nodes, never edi
 
 Per ticket the workflow does 4 Memory ops (Lookup + Open or Create + Observe + Learn) plus 1 LLM call. Cost depends on which provider you pick.
 
-| Component | Cost (Stand 2026-04) | Per-ticket cost |
+| Component | Cost (Stand 2026-05) | Per-ticket cost |
 |---|---|---|
 | **StudioMeyer Memory** | EUR 0 / 29 / 49 per month | Free tier: 200 credits (one credit per op, ~50 support tickets). Pro tier: unlimited. |
-| **OpenAI gpt-5-mini** (default) | $0.25 / 1M input + $2.00 / 1M output | ~$0.0014 per ticket (~500 in + 600 out tokens) |
+| **OpenAI gpt-5.4-mini** (default) | $0.75 / 1M input + $4.50 / 1M output | ~$0.0042 per ticket (~500 in + 600 out tokens) |
 | **Anthropic claude-haiku-4-5** | $1 / 1M input + $5 / 1M output | ~$0.0035 per ticket |
 | Telegram Bot API | free | free |
 
@@ -161,7 +161,7 @@ Per ticket the workflow does 4 Memory ops (Lookup + Open or Create + Observe + L
 
 | Stack | Memory | LLM | Total |
 |---|---|---|---|
-| OpenAI gpt-5-mini | EUR 29/mo (Pro tier required) | ~$7/mo | **~EUR 36/mo** |
+| OpenAI gpt-5.4-mini | EUR 29/mo (Pro tier required) | ~$21/mo | **~EUR 36/mo** |
 | Anthropic claude-haiku-4-5 | EUR 29/mo | ~$17.50/mo | **~EUR 47/mo** |
 
 Below 50 tickets/month you stay within the free Memory tier (200 credits, one per op) and pay only the LLM (~$1-9/mo). Past that, Pro at EUR 29/mo lifts the cap. Pro tier ($29/mo) also unlocks the 3D customer-relationship graph at memory.studiomeyer.io/portal/memory/knowledge.
@@ -203,7 +203,7 @@ Four patterns ship in `workflow.json` as actual nodes, three opt-in via env vars
 | n8n | >= 2.10.1 (CVE-2026-27493 floor) | self-hosted free / Cloud $20/mo | n8n Cloud trial | always |
 | n8n-nodes-studiomeyer-memory | >= 0.1.0 | free | n/a | always |
 | StudioMeyer Memory | API key | EUR 0 / 29 / 49 | 200 credits (one per op) | always |
-| OpenAI (default) | gpt-5-mini | $0.25 / 1M input + $2.00 / 1M output | $5 trial credit | provider = openai |
+| OpenAI (default) | gpt-5.4-mini | $0.75 / 1M input + $4.50 / 1M output | $5 trial credit | provider = openai |
 | Anthropic | claude-haiku-4-5 | $1 / 1M input + $5 / 1M output | $5 trial credit | provider = anthropic |
 | Telegram (BotFather token) or WhatsApp Cloud API | latest stable | varies | trial available | always |
 

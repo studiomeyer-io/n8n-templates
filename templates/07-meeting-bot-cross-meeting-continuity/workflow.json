@@ -1,9 +1,9 @@
 {
-  "name": "AI Customer Support with Customer History (StudioMeyer)",
+  "name": "Meeting-Bot Cross-Meeting Continuity (Multi-Provider)",
   "nodes": [
     {
       "parameters": {
-        "content": "## AI Customer Support Bot\n\n**Stack:** Telegram (or WhatsApp / web chat) \u2192 StudioMeyer Memory entity lookup \u2192 Claude or OpenAI with customer dossier \u2192 reply \u2192 persist outcome.\n\n**Why this beats a stateless bot:** Returning customers don't have to re-explain who they are. The bot greets them by name, references past tickets, and the agent that takes over has full history one click away.\n\n**To swap Telegram for WhatsApp:** replace the trigger node with a WhatsApp Trigger and the reply node with WhatsApp Send Message. The middle stays identical.\n\n**Production patterns ship in this workflow.json** as opt-in Code nodes. See the orange Sticky Notes below for the four env vars that toggle them on.",
+        "content": "## AI Meeting-Bot Cross-Meeting Continuity Bot\n\n**Stack:** Meeting Webhook (or WhatsApp / web chat) \u2192 StudioMeyer Memory entity lookup \u2192 Claude or OpenAI with meeting set dossier \u2192 reply \u2192 persist outcome.\n\n**Why this beats a stateless bot:** Returning meeting sets don't have to re-explain who they are. The bot greets them by name, references past meetings, and the agent that takes over has full history one click away.\n\n**To swap Meeting Webhook for WhatsApp:** replace the trigger node with a WhatsApp Trigger and the reply node with WhatsApp Send Message. The middle stays identical.\n\n**Production patterns ship in this workflow.json** as opt-in Code nodes. See the orange Sticky Notes below for the four env vars that toggle them on.",
         "height": 380,
         "width": 480,
         "color": 6
@@ -19,7 +19,7 @@
     },
     {
       "parameters": {
-        "content": ">> SET ME <<\n\n**Telegram Bot credential** required.\n\n1. Talk to @BotFather, create a bot, get the token.\n2. n8n Credentials \u2192 New \u2192 Telegram \u2192 paste token.\n3. After activation, message your bot once and check this node's incoming-data view.\n\n**Webhook security:** to harden the trigger, expand `additionalFields` and set `secretToken` to a strong random string. Then re-register the webhook so Telegram sends `X-Telegram-Bot-Api-Secret-Token` on every request. The trigger validates it automatically.",
+        "content": ">> SET ME <<\n\n**Meeting Webhook Bot credential** required.\n\n1. Talk to your meeting platform's webhook configuration, create a bot, get the token.\n2. n8n Credentials \u2192 New \u2192 Meeting Webhook \u2192 paste token.\n3. After activation, message your bot once and check this node's incoming-data view.\n\n**Webhook security:** to harden the trigger, expand `additionalFields` and set `secretToken` to a strong random string. Then re-register the webhook so Meeting Webhook sends `X-Meeting Webhook-Bot-Api-Secret-Token` on every request. The trigger validates it automatically.\n\nIMPORTANT (self-hosted n8n): set `NODE_FUNCTION_ALLOW_BUILTIN=crypto` env var, otherwise the Verify Webhook + Extract Meeting Key code nodes throw at runtime when calling require('crypto').",
         "height": 320,
         "width": 320,
         "color": 5
@@ -35,7 +35,7 @@
     },
     {
       "parameters": {
-        "content": "## Production patterns (opt-in)\n\nThree Code nodes below are off by default. Toggle each with an n8n env var:\n\n- `IDEMPOTENCY_ENABLED=1` deduplicates Telegram retries on the same `update_id` (5-min window).\n- `RATE_LIMIT_ENABLED=1` caps each chat at 60 requests / 5 min.\n- `WEBHOOK_INTEGRITY_CHECK_ENABLED=1` rejects malformed payloads (no `message`, no `from`).\n\nEach node returns pass-through when its env var is unset, so the default import boots clean. Production deployments enable all three plus the Telegram Trigger `secretToken`.\n\nFor clustered n8n deployments, swap the in-memory `$getWorkflowStaticData` blocks for Redis (`SET NX EX 300` for idempotency, `INCR + EXPIRE` for rate limit). Single-instance n8n is fine with the default.",
+        "content": "## Production patterns (opt-in)\n\nThree Code nodes below are off by default. Toggle each with an n8n env var:\n\n- `IDEMPOTENCY_ENABLED=1` deduplicates Meeting Webhook retries on the same `meeting_id` (5-min window).\n- `RATE_LIMIT_ENABLED=1` caps each chat at 60 requests / 5 min.\n- `WEBHOOK_INTEGRITY_CHECK_ENABLED=1` rejects malformed payloads (no `message`, no `from`).\n\nEach node returns pass-through when its env var is unset, so the default import boots clean. Production deployments enable all three plus the Meeting Webhook Trigger `secretToken`.\n\nFor clustered n8n deployments, swap the in-memory `$getWorkflowStaticData` blocks for Redis (`SET NX EX 300` for idempotency, `INCR + EXPIRE` for rate limit). Single-instance n8n is fine with the default.\n\nIMPORTANT (self-hosted n8n): set `NODE_FUNCTION_ALLOW_BUILTIN=crypto` env var, otherwise the Verify Webhook + Extract Meeting Key code nodes throw at runtime when calling require('crypto').",
         "height": 360,
         "width": 540,
         "color": 7
@@ -51,20 +51,22 @@
     },
     {
       "parameters": {
-        "updates": [
-          "message"
-        ],
-        "additionalFields": {}
+        "httpMethod": "POST",
+        "path": "meeting-end",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
       },
-      "id": "support-1-trigger",
-      "name": "Telegram Trigger",
-      "type": "n8n-nodes-base.telegramTrigger",
-      "typeVersion": 1.1,
+      "id": "mtg-1-trigger",
+      "name": "Meeting Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
       "position": [
         240,
         320
       ],
-      "webhookId": "support-telegram"
+      "webhookId": "meeting-end"
     },
     {
       "parameters": {
@@ -107,10 +109,10 @@
     },
     {
       "parameters": {
-        "jsCode": "// Extract a stable customer key from the inbound Telegram message.\n// Priority: email in message body > Telegram user ID > Telegram chat ID.\n// We never produce 'tg:undefined' which would collapse all anonymous\n// senders (channel posts, forwarded messages without sender) into one\n// shared customer entity.\n\nconst body = $input.first().json;\nconst message = body?.message ?? body;\nconst text = message?.text ?? message?.caption ?? '';\nconst tgUserId = message?.from?.id;\nconst tgUsername = message?.from?.username;\nconst tgFirstName = message?.from?.first_name ?? '';\nconst chatId = message?.chat?.id;\n\n// Email regex, RFC-5322-ish but conservative\nconst emailRe = /[\\w!#$%&'*+/=?^_`{|}~.-]+@[\\w.-]+\\.[a-zA-Z]{2,}/;\nconst emailMatch = text.match(emailRe);\nconst customerEmail = emailMatch ? emailMatch[0].toLowerCase() : null;\n\n// Customer key resolution in fallback order:\n//   1. email if visible in the message text\n//   2. Telegram user id (when from.id is present)\n//   3. Telegram chat id (always present on valid messages, last-resort)\n// If all three are missing the message is malformed and we fail loud.\nlet customerKey;\nlet customerLabel;\nif (customerEmail) {\n  customerKey = customerEmail;\n  customerLabel = customerEmail;\n} else if (tgUserId !== undefined && tgUserId !== null) {\n  customerKey = `tg:${tgUserId}`;\n  customerLabel = tgUsername ? `@${tgUsername}` : (tgFirstName || `tg:${tgUserId}`);\n} else if (chatId !== undefined && chatId !== null) {\n  customerKey = `chat:${chatId}`;\n  customerLabel = `chat:${chatId}`;\n} else {\n  throw new Error('Cannot build customer key: message has no email, no from.id, and no chat.id');\n}\n\nreturn [{\n  json: {\n    customerKey,\n    customerEmail,\n    customerLabel,\n    tgUserId,\n    tgUsername,\n    tgFirstName,\n    chatId,\n    messageText: text,\n    receivedAt: new Date().toISOString(),\n  },\n}];"
+        "jsCode": "// Extract a stable meeting key from the Fathom or Otter or Granola webhook payload.\n// Strategy: combine sorted-participant-emails into a hash (the \"participant set\"),\n// plus persist the meeting_id from the source for idempotency. Fathom and Otter both\n// expose a unique meeting_id and a participants array.\n//\n// Why participant-set: cross-meeting continuity is ONLY meaningful for the SAME\n// people. A 1-on-1 with Alex and a 1-on-1 with Sam should not share context.\n\nconst body = $input.first().json;\n\n// Source-detection (Fathom vs Otter vs Granola vs Fireflies)\nlet source = 'unknown';\nlet meetingId, title, transcript, summary, participants, startedAt;\n\nif (body?.fathom_id || body?.fathom_meeting_id) {\n  source = 'fathom';\n  meetingId = body.fathom_id ?? body.fathom_meeting_id;\n  title = body?.title ?? 'Fathom Meeting';\n  transcript = body?.transcript_text ?? body?.transcript ?? '';\n  summary = body?.summary?.text ?? body?.summary ?? '';\n  participants = (body?.invitees ?? body?.participants ?? []).map(p => p.email ?? p);\n  startedAt = body?.scheduled_start_time ?? body?.started_at;\n} else if (body?.otter_meeting_id || body?.speech_id) {\n  source = 'otter';\n  meetingId = body.otter_meeting_id ?? body.speech_id;\n  title = body?.title ?? 'Otter Meeting';\n  transcript = body?.transcript ?? '';\n  summary = body?.summary ?? '';\n  participants = (body?.speakers ?? []).map(s => s.email ?? s.name ?? '');\n  startedAt = body?.started_at;\n} else if (body?.granola_id) {\n  source = 'granola';\n  meetingId = body.granola_id;\n  title = body?.title ?? 'Granola Meeting';\n  transcript = body?.transcript ?? '';\n  summary = body?.notes ?? body?.summary ?? '';\n  participants = (body?.attendees ?? []).map(a => a.email ?? a);\n  startedAt = body?.start_time;\n} else {\n  // Generic fallback shape\n  meetingId = body?.id ?? body?.meeting_id ?? `unknown-${Date.now()}`;\n  title = body?.title ?? body?.subject ?? 'Meeting';\n  transcript = body?.transcript ?? body?.text ?? '';\n  summary = body?.summary ?? '';\n  participants = body?.participants ?? body?.attendees ?? body?.invitees ?? [];\n  if (Array.isArray(participants) && participants[0] && typeof participants[0] === 'object') {\n    participants = participants.map(p => p.email ?? p.name ?? String(p));\n  }\n  startedAt = body?.started_at ?? body?.start_time;\n  source = body?.source ?? 'generic';\n}\n\nparticipants = (participants ?? [])\n  .filter(Boolean)\n  .map(p => String(p).trim().toLowerCase())\n  .filter(p => p.length > 0);\n\nif (participants.length === 0) {\n  throw new Error('Cannot extract meeting key: no participants in payload.');\n}\n\n// Sorted participant set hash for stable cross-meeting recognition\nconst sortedParticipants = [...new Set(participants)].sort();\nconst crypto = require('crypto');\nconst participantKey = 'meeting-set:' + crypto\n  .createHash('sha256')\n  .update(sortedParticipants.join('|'))\n  .digest('hex')\n  .slice(0, 16);\n\nreturn [{\n  json: {\n    meetingId,\n    title,\n    source,\n    transcript: transcript.slice(0, 8000),  // cap to avoid LLM context blow\n    summary,\n    customerKey: participantKey,        // reuse customerKey naming for entity-lookup parity\n    customerLabel: `Meeting set: ${sortedParticipants.join(', ').slice(0, 80)}`,\n    participants: sortedParticipants,\n    participantList: sortedParticipants.join(', '),\n    participantCount: sortedParticipants.length,\n    startedAt,\n    receivedAt: new Date().toISOString(),\n  },\n}];"
       },
-      "id": "support-2-extract",
-      "name": "Extract Customer Key",
+      "id": "mtg-2-extract",
+      "name": "Extract Meeting Key",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -126,8 +128,8 @@
         "entityType": "customer",
         "limit": 1
       },
-      "id": "support-3-entity-search",
-      "name": "Memory: Lookup Customer",
+      "id": "mtg-3-lookup",
+      "name": "Memory: Lookup Meeting Set",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
@@ -159,8 +161,8 @@
         },
         "options": {}
       },
-      "id": "support-4-if",
-      "name": "Known Customer?",
+      "id": "mtg-3b-known",
+      "name": "Recurring Meeting Set?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
@@ -172,10 +174,10 @@
       "parameters": {
         "resource": "entity",
         "operation": "open",
-        "entityRef": "={{ $('Extract Customer Key').item.json.customerKey }}"
+        "entityRef": "={{ $('Extract Meeting Key').item.json.customerKey }}"
       },
-      "id": "support-5a-open",
-      "name": "Memory: Customer Dossier",
+      "id": "mtg-3c-dossier",
+      "name": "Memory: Meeting History",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
@@ -187,13 +189,13 @@
       "parameters": {
         "resource": "entity",
         "operation": "create",
-        "name": "={{ $('Extract Customer Key').item.json.customerKey }}",
+        "name": "={{ $('Extract Meeting Key').item.json.customerKey }}",
         "entityType": "customer",
-        "project": "support-bot",
-        "observations": "=First contact via Telegram on {{ $('Extract Customer Key').item.json.receivedAt }}. Message: {{ $('Extract Customer Key').item.json.messageText.slice(0, 200) }}"
+        "project": "meeting-bot",
+        "observations": "=Meeting set created via webhook on {{ $('Extract Meeting Key').item.json.receivedAt }}. Message: {{ $('Extract Meeting Key').item.json.messageText.slice(0, 200) }}"
       },
-      "id": "support-5b-create",
-      "name": "Memory: Create Customer",
+      "id": "mtg-3d-create",
+      "name": "Memory: Create Meeting Set",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
@@ -203,7 +205,7 @@
     },
     {
       "parameters": {
-        "content": "## Why entity.open here\n\nFor returning customers we use `entity.open` (not `memory.search`) because we want the **complete dossier**: entity-type, first-seen date, every observation, every relation. That's exactly what an agent needs to feel like a colleague who reviewed the customer's file before saying hello.\n\nFor recency-weighted search across **all** memory (e.g. when the customer asks about a product topic, not their own history), use the Memory: Search operation instead.",
+        "content": "## Why entity.open here\n\nFor returning meeting sets we use `entity.open` (not `memory.search`) because we want the **complete dossier**: entity-type, first-seen date, every observation, every relation. That's exactly what an agent needs to feel like a colleague who reviewed the meeting set's file before saying hello.\n\nFor recency-weighted search across **all** memory (e.g. when the meeting set asks about a product topic, not their own history), use the Memory: Search operation instead.",
         "height": 240,
         "width": 380,
         "color": 7
@@ -219,9 +221,9 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build a structured dossier the LLM can use as background.\n\nconst custKey = $('Extract Customer Key').item.json.customerKey;\nconst custLabel = $('Extract Customer Key').item.json.customerLabel || '(unknown)';\nconst messageText = $('Extract Customer Key').item.json.messageText;\n\n// If known customer: pull observations from entity.open\nlet observations = [];\nlet entityType = 'customer';\nlet firstSeen = null;\ntry {\n  const dossier = $('Memory: Customer Dossier').first()?.json;\n  const entity = dossier?.entity ?? dossier?.data ?? dossier;\n  observations = entity?.observations ?? [];\n  entityType = entity?.entityType ?? 'customer';\n  firstSeen = entity?.createdAt ?? entity?.validFrom;\n} catch (e) {\n  // First-time customer, no dossier yet\n}\n\nconst obsList = observations.length\n  ? observations.slice(-10).map((o, i) => {\n      const content = o.content ?? o.text ?? JSON.stringify(o).slice(0, 200);\n      const at = o.createdAt ?? o.observedAt ?? '';\n      return `${i + 1}. [${at}] ${content}`;\n    }).join('\\n')\n  : '(this is a new customer, no prior tickets on file)';\n\nconst systemPrompt = `You are a friendly support agent for our company.\\n\\nCustomer: ${custLabel}\\nFirst contact: ${firstSeen ?? 'today'}\\nPrior interactions (most recent first):\\n${obsList}\\n\\nReply concisely. Reference past tickets when it adds value (\"I see this is your second time asking about X, let me get to the bottom of it.\"). If the question is unclear, ask one clarifying question. If the issue is technical and beyond a one-line answer, offer to escalate to a human and tell the user that you'll log the ticket.`;\n\nreturn [{\n  json: {\n    customerKey: custKey,\n    customerLabel: custLabel,\n    messageText,\n    systemPrompt,\n    observationCount: observations.length,\n  },\n}];"
+        "jsCode": "// Build a system + user prompt that asks the LLM to synthesize a cross-meeting\n// summary, knowing what was discussed in prior meetings with the SAME participant set.\n//\n// The dossier comes from Memory: Meeting History (entity.open) for known sets,\n// or Memory: Create Meeting Set for first-time. The LLM gets the new meeting's\n// summary plus 5 most-recent prior meeting observations as context.\n\nconst customerKey = $('Extract Meeting Key').item.json.customerKey;\nconst meetingId = $('Extract Meeting Key').item.json.meetingId;\nconst title = $('Extract Meeting Key').item.json.title;\nconst summary = $('Extract Meeting Key').item.json.summary;\nconst transcript = $('Extract Meeting Key').item.json.transcript;\nconst participantList = $('Extract Meeting Key').item.json.participantList;\n\nconst dossierRaw = $input.first().json;\nconst dossier = dossierRaw?.data ?? dossierRaw;\nconst observations = dossier?.observations ?? [];\nconst priorMeetingCount = observations.length;\nconst priorContext = observations\n  .slice(-5)\n  .map(o => `- ${o?.created_at?.slice(0, 10) ?? '?'} ${(o?.content ?? '').slice(0, 300)}`)\n  .join('\\n');\n\nconst meetingInput = summary || transcript.slice(0, 4000);\n\nconst systemPrompt = `You are a meeting-context analyst. The same group of participants has met before. Your job is to summarize the LATEST meeting as a 4-sentence brief that highlights what is NEW versus what was already discussed in prior meetings, and what action items emerge that did not exist before.\n\nOutput format (markdown, NO preamble, NO em-dashes):\n\n**${title}** (meeting ${meetingId.slice(0, 12)})\n\n* Key takeaway from this meeting (1 sentence)\n* New decisions or shifts since last meeting (1-2 sentences)\n* Action items, who-owns-what (1-2 lines)\n* Open questions for next time (1 line)\n\nParticipants: ${participantList}\nPrior meetings on file with this exact set: ${priorMeetingCount}\n\nPrior meeting observations (most-recent last):\n${priorContext || '(no prior meetings on file with this participant set)'}\n\nLatest meeting input:\n${meetingInput}`;\n\nreturn [{\n  json: {\n    systemPrompt,\n    messageText: meetingInput,\n    customerKey,\n    customerLabel: $('Extract Meeting Key').item.json.customerLabel,\n    meetingTitle: title,\n    priorMeetingCount,\n  },\n}];"
       },
-      "id": "support-6-prompt",
+      "id": "mtg-4-prompt",
       "name": "Build LLM Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -247,7 +249,7 @@
         "includeOtherFields": true,
         "options": {}
       },
-      "id": "mp-set-provider",
+      "id": "mtg-5-set-provider",
       "name": "Set Provider",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -315,7 +317,7 @@
           "renameFallbackOutput": "fallback"
         }
       },
-      "id": "mp-route",
+      "id": "mtg-5b-route",
       "name": "Route by Provider",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -352,7 +354,7 @@
           "temperature": 0.5
         }
       },
-      "id": "mp-openai",
+      "id": "mtg-6-openai",
       "name": "OpenAI Reply",
       "type": "n8n-nodes-base.openAi",
       "typeVersion": 1.7,
@@ -389,7 +391,7 @@
           "temperature": 0.5
         }
       },
-      "id": "mp-anthropic",
+      "id": "mtg-6-anthropic",
       "name": "Anthropic Reply",
       "type": "@n8n/n8n-nodes-langchain.anthropic",
       "typeVersion": 1,
@@ -401,7 +403,7 @@
     },
     {
       "parameters": {
-        "content": "## Error branch (always on)\n\nThe two LLM Reply nodes have `On Error: Continue (Error Output)` enabled. The red error pin lands at **LLM Fallback Reply**, which builds a graceful customer message and feeds two destinations:\n\n1. **Telegram Reply** so the customer gets an answer instead of silence.\n2. **Memory: Learn Error** with `category: mistake, tags: [llm-error, <provider>]` so you spot patterns in your knowledge graph.\n\nNo env var, this branch is always wired. Without it, an OpenAI rate-limit or Anthropic 5xx leaves the customer hanging.\n\nThe error syntax is `{{ $json.error.message }}`, not `$error.message` (which does not exist in n8n) and not `$json.execution.error.message` (which is for separate Error Trigger Workflows, not inline error pins).",
+        "content": "## Error branch (always on)\n\nThe two LLM Reply nodes have `On Error: Continue (Error Output)` enabled. The red error pin lands at **LLM Fallback Reply**, which builds a graceful meeting set message and feeds two destinations:\n\n1. **Meeting Webhook Reply** so the meeting set gets an answer instead of silence.\n2. **Memory: Learn Error** with `category: mistake, tags: [llm-error, <provider>]` so you spot patterns in your knowledge graph.\n\nNo env var, this branch is always wired. Without it, an OpenAI rate-limit or Anthropic 5xx leaves the meeting set hanging.\n\nThe error syntax is `{{ $json.error.message }}`, not `$error.message` (which does not exist in n8n) and not `$json.execution.error.message` (which is for separate Error Trigger Workflows, not inline error pins).",
         "height": 360,
         "width": 460,
         "color": 7
@@ -417,9 +419,9 @@
     },
     {
       "parameters": {
-        "jsCode": "// LLM Fallback Reply: fires when OpenAI Reply or Anthropic Reply errors,\n// or when Route by Provider receives an unknown provider value.\n// Builds a graceful customer-facing reply and an error-learn payload.\n//\n// Two arrival paths land here:\n//   1. LLM error (provider returned non-2xx) - input has $json.error\n//   2. Router fallback (Route by Provider had no matching rule) - input has\n//      the original prompt object (systemPrompt with customer dossier,\n//      messageText, customerKey, etc.) WITHOUT an error field.\n//      We must NOT JSON.stringify the whole input because systemPrompt\n//      contains private memory context (the customer dossier observations).\n\nconst errorRaw = $input.first().json;\nconst provider = $('Set Provider').item.json.provider ?? 'unknown';\n\nconst isLlmError = !!(errorRaw?.error || errorRaw?.message);\nlet errorMessage;\nif (isLlmError) {\n  errorMessage = errorRaw?.error?.message\n    ?? errorRaw?.error?.name\n    ?? errorRaw?.message\n    ?? 'Unknown LLM error';\n} else {\n  errorMessage = `Unknown provider value: ${provider}. Set \"provider\" to \"openai\" or \"anthropic\" in the Set Provider node.`;\n}\n\nconst customerKey = $('Extract Customer Key').item.json.customerKey;\nconst customerLabel = $('Extract Customer Key').item.json.customerLabel;\nconst messageText = $('Extract Customer Key').item.json.messageText;\n\nconst fallbackText = `Sorry, our system is briefly unavailable. We will get back to you within an hour.`;\n\nreturn [{\n  json: {\n    replyText: fallbackText,\n    provider,\n    isFallback: true,\n    isRouterFallback: !isLlmError,\n    errorMessage: String(errorMessage),\n    customerKey,\n    customerLabel,\n    messageText,\n  },\n}];"
+        "jsCode": "// LLM Fallback Reply for meeting summarization.\n// Two arrival paths:\n//   1. LLM error - input has $json.error\n//   2. Router fallback - input has the original prompt object including\n//      systemPrompt with prior meeting observations. We must NOT JSON.stringify.\n\nconst errorRaw = $input.first().json;\nconst provider = $('Set Provider').item.json.provider ?? 'unknown';\n\nconst isLlmError = !!(errorRaw?.error || errorRaw?.message);\nlet errorMessage;\nif (isLlmError) {\n  errorMessage = errorRaw?.error?.message\n    ?? errorRaw?.error?.name\n    ?? errorRaw?.message\n    ?? 'Unknown LLM error';\n} else {\n  errorMessage = `Unknown provider value: ${provider}.`;\n}\n\nconst customerKey = $('Extract Meeting Key').item.json.customerKey;\nconst meetingId = $('Extract Meeting Key').item.json.meetingId;\nconst title = $('Extract Meeting Key').item.json.title;\nconst messageText = $('Extract Meeting Key').item.json.summary || '(transcript unavailable)';\n\nconst fallbackText = `**${title}** (meeting ${String(meetingId).slice(0, 12)})\\n\\n* Summarizer is briefly down, please review the transcript manually.\\n* No cross-meeting comparison available for this run.\\n* Action: human review required.\\n* Next: re-run when the LLM provider is back.`;\n\nreturn [{\n  json: {\n    replyText: fallbackText,\n    provider,\n    isFallback: true,\n    isRouterFallback: !isLlmError,\n    errorMessage: String(errorMessage),\n    customerKey,\n    customerLabel: $('Extract Meeting Key').item.json.customerLabel,\n    messageText,\n  },\n}];"
       },
-      "id": "support-7-fallback",
+      "id": "mtg-7-fallback",
       "name": "LLM Fallback Reply",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -432,7 +434,7 @@
       "parameters": {
         "jsCode": "// Normalize LLM output across providers into a single field `replyText`.\n// OpenAI:    $json.choices[0].message.content\n// Anthropic: $json.content[0].text\n\nconst raw = $input.first().json;\nlet replyText = '';\n\nif (raw?.choices?.[0]?.message?.content) {\n  replyText = raw.choices[0].message.content;\n} else if (Array.isArray(raw?.content) && raw.content[0]?.text) {\n  replyText = raw.content[0].text;\n} else if (raw?.message?.content) {\n  replyText = raw.message.content;\n} else if (raw?.text) {\n  replyText = raw.text;\n} else if (raw?.reply) {\n  replyText = raw.reply;\n} else {\n  replyText = '(LLM returned no text, check provider response shape)';\n}\n\nreturn [{\n  json: {\n    replyText: String(replyText).trim(),\n    provider: $('Set Provider').item.json.provider,\n    isFallback: false,\n  },\n}];"
       },
-      "id": "mp-normalize",
+      "id": "mtg-8-normalize",
       "name": "Normalize LLM Output",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -443,30 +445,32 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $('Extract Customer Key').item.json.chatId }}",
-        "text": "={{ $json.replyText ?? 'Sorry, I had trouble generating a reply. A human will be in touch shortly.' }}",
-        "additionalFields": {
-          "parse_mode": "Markdown"
-        }
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $('Build LLM Prompt').item.json.meetingTitle + ' - cross-meeting summary', blocks: [{type:'section', text:{type:'mrkdwn', text:$json.replyText}}, {type:'context', elements:[{type:'mrkdwn', text:'Participants: ' + $('Extract Meeting Key').item.json.participantList + ' | Prior meetings on file: ' + $('Build LLM Prompt').item.json.priorMeetingCount}]}] }) }}",
+        "options": {}
       },
-      "id": "support-8-tg-send",
-      "name": "Telegram Reply",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
+      "id": "mtg-9-slack",
+      "name": "Slack: Post Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         3200,
         320
-      ]
+      ],
+      "credentials": {}
     },
     {
       "parameters": {
         "resource": "entity",
         "operation": "observe",
-        "entityRef": "={{ $('Extract Customer Key').item.json.customerKey }}",
-        "observations": "=Ticket on {{ $('Extract Customer Key').item.json.receivedAt }}, Customer: {{ $('Extract Customer Key').item.json.messageText.slice(0, 200) }} | Bot reply: {{ ($json.replyText ?? '').slice(0, 200) }}"
+        "entityRef": "={{ $('Extract Meeting Key').item.json.customerKey }}",
+        "observations": "=Ticket on {{ $('Extract Meeting Key').item.json.receivedAt }}, Customer: {{ $('Extract Meeting Key').item.json.messageText.slice(0, 200) }} | Bot reply: {{ ($json.replyText ?? '').slice(0, 200) }}"
       },
-      "id": "support-9-observe",
-      "name": "Memory: Observe Ticket",
+      "id": "mtg-9b-observe",
+      "name": "Memory: Observe Meeting",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
@@ -478,14 +482,14 @@
       "parameters": {
         "resource": "memory",
         "operation": "learn",
-        "content": "=Support interaction with {{ $('Extract Customer Key').item.json.customerLabel }} ({{ $('Extract Customer Key').item.json.customerKey }}): \"{{ $('Extract Customer Key').item.json.messageText.slice(0, 150) }}\" \u2192 Bot resolved with: \"{{ ($json.replyText ?? '').slice(0, 150) }}\"",
+        "content": "=Support interaction with {{ $('Extract Meeting Key').item.json.customerLabel }} ({{ $('Extract Meeting Key').item.json.customerKey }}): \"{{ $('Extract Meeting Key').item.json.messageText.slice(0, 150) }}\" \u2192 Bot resolved with: \"{{ ($json.replyText ?? '').slice(0, 150) }}\"",
         "category": "insight",
-        "project": "support-bot",
-        "tags": "=support, customer-{{ $('Extract Customer Key').item.json.customerKey }}",
+        "project": "meeting-bot",
+        "tags": "=support, customer-{{ $('Extract Meeting Key').item.json.customerKey }}",
         "confidence": 0.7
       },
-      "id": "support-10-learn",
-      "name": "Memory: Learn Ticket",
+      "id": "mtg-9c-learn",
+      "name": "Memory: Learn Cross-Meeting-Insight",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
       "position": [
@@ -499,11 +503,11 @@
         "operation": "learn",
         "content": "=LLM error in support bot ({{ $json.provider }}): {{ $json.errorMessage }} | Customer: {{ $json.customerLabel }} ({{ $json.customerKey }}) | Question: \"{{ ($json.messageText ?? '').slice(0, 150) }}\"",
         "category": "mistake",
-        "project": "support-bot",
+        "project": "meeting-bot",
         "tags": "=llm-error, {{ $json.provider }}, support-bot",
         "confidence": 0.6
       },
-      "id": "support-11-learn-error",
+      "id": "mtg-9d-error-learn",
       "name": "Memory: Learn Error",
       "type": "n8n-nodes-studiomeyer-memory.studioMeyerMemory",
       "typeVersion": 1,
@@ -511,10 +515,25 @@
         3440,
         580
       ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ack', meetingId: $('Extract Meeting Key').item.json.meetingId, participantCount: $('Extract Meeting Key').item.json.participantCount }) }}",
+        "options": {}
+      },
+      "id": "mtg-1b-ack",
+      "name": "Webhook Acknowledge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        100
+      ]
     }
   ],
   "connections": {
-    "Telegram Trigger": {
+    "Meeting Webhook": {
       "main": [
         [
           {
@@ -551,54 +570,59 @@
       "main": [
         [
           {
-            "node": "Extract Customer Key",
+            "node": "Extract Meeting Key",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Webhook Acknowledge",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Extract Customer Key": {
+    "Extract Meeting Key": {
       "main": [
         [
           {
-            "node": "Memory: Lookup Customer",
+            "node": "Memory: Lookup Meeting Set",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Memory: Lookup Customer": {
+    "Memory: Lookup Meeting Set": {
       "main": [
         [
           {
-            "node": "Known Customer?",
+            "node": "Recurring Meeting Set?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Known Customer?": {
+    "Recurring Meeting Set?": {
       "main": [
         [
           {
-            "node": "Memory: Customer Dossier",
+            "node": "Memory: Meeting History",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Memory: Create Customer",
+            "node": "Memory: Create Meeting Set",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Memory: Customer Dossier": {
+    "Memory: Meeting History": {
       "main": [
         [
           {
@@ -609,7 +633,7 @@
         ]
       ]
     },
-    "Memory: Create Customer": {
+    "Memory: Create Meeting Set": {
       "main": [
         [
           {
@@ -707,17 +731,17 @@
       "main": [
         [
           {
-            "node": "Telegram Reply",
+            "node": "Slack: Post Summary",
             "type": "main",
             "index": 0
           },
           {
-            "node": "Memory: Observe Ticket",
+            "node": "Memory: Observe Meeting",
             "type": "main",
             "index": 0
           },
           {
-            "node": "Memory: Learn Ticket",
+            "node": "Memory: Learn Cross-Meeting-Insight",
             "type": "main",
             "index": 0
           }
@@ -728,7 +752,7 @@
       "main": [
         [
           {
-            "node": "Telegram Reply",
+            "node": "Slack: Post Summary",
             "type": "main",
             "index": 0
           },

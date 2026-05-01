@@ -11,7 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![n8n compatible](https://img.shields.io/badge/n8n-2.10.1%2B-FF6E5C.svg)](https://n8n.io)
 [![Custom Node](https://img.shields.io/npm/v/n8n-nodes-studiomeyer-memory?label=community%20node&color=blue)](https://www.npmjs.com/package/n8n-nodes-studiomeyer-memory)
-[![Templates](https://img.shields.io/badge/templates-3%20live-brightgreen.svg)](#templates)
+[![Templates](https://img.shields.io/badge/templates-8%20live-brightgreen.svg)](#templates)
 [![Memory backend](https://img.shields.io/badge/memory-studiomeyer.io-d4af37.svg)](https://memory.studiomeyer.io)
 [![CI](https://github.com/studiomeyer-io/n8n-templates/actions/workflows/validate-workflows.yml/badge.svg)](https://github.com/studiomeyer-io/n8n-templates/actions)
 
@@ -29,7 +29,7 @@ Without persistent memory every AI interaction starts from zero. Voice agents fo
 
 These templates fix that. Each workflow follows the same loop: **search the memory, reason with the context, write the outcome back**. Memory is provided by [StudioMeyer Memory](https://memory.studiomeyer.io), a hosted MCP backend with a knowledge graph, semantic search, and multi-tenant isolation. Free tier is 200 free credits (one credit per operation) activated by one click in the portal at [studiomeyer.io/portal/login](https://studiomeyer.io/portal/login), no card required.
 
-Each template is multi-provider out of the box. Pick OpenAI (default `gpt-5-mini`) or Anthropic (`claude-haiku-4-5`) with one click. Add a third branch for Gemini or local Ollama by adding one Switch rule. Memory writes stay identical regardless of which LLM you picked.
+Each template is multi-provider out of the box. Pick OpenAI (default `gpt-5.4-mini`, May 2026) or Anthropic (`claude-haiku-4-5`) with one click. Add a third branch for Gemini or local Ollama by adding one Switch rule. Memory writes stay identical regardless of which LLM you picked.
 
 ## Quick Start
 
@@ -51,7 +51,7 @@ Detailed walkthrough per template lives inside each `templates/NN-slug/README.md
 
 ## Templates
 
-### Tier 1 · Maximum ROI · Hardened (v0.4.0-prep)
+### Tier 1 · Maximum ROI · Hardened (v0.4.0)
 
 All three ship the four opt-in production patterns (HMAC verify, rate limit, idempotency, error branches) as actual nodes plus an always-on error branch. T02 + T03 are live-verified against `memory.studiomeyer.io`. T01 awaits an end-to-end Vapi/Retell smoke trace before the distribution push. See [STATUS.md](./STATUS.md) for ground truth.
 
@@ -61,16 +61,26 @@ All three ship the four opt-in production patterns (HMAC verify, rate limit, ide
 | 2 | [AI Customer Support with History](./templates/02-customer-support-with-history/) | Telegram (swappable for WhatsApp / Slack) | entity.search → entity.open dossier | Multi-provider | Hardened, live-verified |
 | 3 | [Personal Assistant Long-Term Memory](./templates/03-personal-assistant-long-term-memory/) | Telegram with intent classifier | memory.search → memory.synthesize | Multi-provider | Hardened, live-verified |
 
-### Tier 2 · Reference cases · Coming next
+### Tier 2 · Reference cases · Hardened (v0.5.0-prep)
 
-- **Restaurant Stammgast Bot**, Telegram + entity tracking, backed by [MenuFlow](https://menuflow.studiomeyer.io) as a live reference deployment.
-- **Tourist Bot with Repeat-Visitor Recognition**, Web chat + session memory, backed by [MallorcaBot](https://mallorcabot.de).
-- **Lead Qualifier with Conversation Memory**, Form trigger + BANT discovery, cross-sell to [StudioMeyer CRM](https://crm.studiomeyer.io).
+All three ship the same four production patterns, structurally validated against n8n 2.15.0 (live-import + pre-activation-check passed). End-to-end smoke against the real backend per template (Telegram bot, web-chat widget, Pipedrive instance) is the next pass.
 
-### Tier 3 · Niche differentiators · Backlog
+| # | Template | Trigger | Memory pattern | LLM | Status |
+|---|---|---|---|---|---|
+| 4 | [Restaurant Stammgast-Bot](./templates/04-restaurant-stammgast-bot/) | Telegram (phone-aware) | entity.search → entity.observe | Multi-provider | Hardened, E2E-pending |
+| 5 | [Tourist-Bot Repeat-Visitor](./templates/05-tourist-bot-repeat-visitor/) | Generic web-chat webhook | entity.search → entity.observe | Multi-provider | Hardened, E2E-pending |
+| 6 | [Lead-Qualifier with BANT+I and Pipedrive](./templates/06-lead-qualifier-pipedrive/) | Form webhook | entity.search → entity.observe → Pipedrive create-deal | Multi-provider | Hardened, E2E-pending |
 
-- **Meeting Bot with Context Continuity**, Otter / Fathom transcripts, multi-meeting synthesis.
-- **Mem0 / Zep migration tool**, bulk-import existing memory backends into StudioMeyer Memory.
+T04 references [MenuFlow](https://studiomeyer.io/services/tourismus/menuflow) as a live reference deployment. T05 references [MallorcaBot](https://mallorcabot.de). T06 cross-sells to [StudioMeyer CRM](https://crm.studiomeyer.io) with Pipedrive as the integration target.
+
+### Tier 3 · Niche differentiators · Hardened (v0.5.0-prep)
+
+| # | Template | Trigger | Memory pattern | LLM | Status |
+|---|---|---|---|---|---|
+| 7 | [Meeting-Bot Cross-Meeting Continuity](./templates/07-meeting-bot-cross-meeting-continuity/) | Fathom / Otter / Granola webhook | entity.search by participant-set hash → memory.synthesize | Multi-provider | Hardened, E2E-pending |
+| 8 | [Mem0 / Zep Migration to StudioMeyer Memory](./templates/08-mem0-zep-migration/) | Manual or HTTP Trigger | entity.create + observe + learn (batch ETL) | None (pure ETL) | Developer-preview |
+
+T07 is the participant-set-hash pattern, no other Memory backend ships cross-meeting continuity as a first-class API. T08 is the migration whitespace (Zep deprecated their Community Edition in late 2025, Mem0 has no migration tool, no third-party utility exists).
 
 ## Architecture
 
@@ -127,7 +137,7 @@ Most n8n templates on the marketplace are demos. They show the happy path and st
 
 | Pattern | Why it matters | Where it lives |
 |---|---|---|
-| **Multi-provider LLM switch** | Provider lock-in is bad for the builder. They want to A/B OpenAI vs Anthropic, swap if costs spike, fall back if one is down. | `Set Provider` + `Route by Provider` nodes let the builder pick OpenAI (default `gpt-5-mini`) or Anthropic (`claude-haiku-4-5`). Both branches converge in a `Normalize LLM Output` Code node that flattens the provider-specific response shape. |
+| **Multi-provider LLM switch** | Provider lock-in is bad for the builder. They want to A/B OpenAI vs Anthropic, swap if costs spike, fall back if one is down. | `Set Provider` + `Route by Provider` nodes let the builder pick OpenAI (default `gpt-5.4-mini`) or Anthropic (`claude-haiku-4-5`). Both branches converge in a `Normalize LLM Output` Code node that flattens the provider-specific response shape. |
 | **Memory de-duplication** | Same observation written twice creates noise in the knowledge graph. | StudioMeyer Memory's gatekeeper deduplicates on >95% content similarity automatically. Our templates rely on it. The `action: SKIPPED, similarity: 1` response on retries is the verification signal. |
 
 **Three of these patterns ship as opt-in nodes in Templates 02 and 03, all four ship as opt-in nodes in Template 01 (gated by env vars, default-off so the import boots clean). Toggle via env var to enable for production:**
@@ -141,7 +151,7 @@ Most n8n templates on the marketplace are demos. They show the happy path and st
 
 The first table is what you get out of the box. The second table is what you wire in when you move from dev to production. Both are documented end-to-end so neither has to be re-invented per template.
 
-Roadmap note: v0.4.0 will ship the four production-patterns as opt-in nodes inside the default workflow.json (off by default with sticky-note instructions to enable), so they are one click away rather than one paste away.
+v0.4.0 (live as of S950, 2026-05-01) shipped the four production-patterns as opt-in nodes inside every Tier-1 + Tier-2 + Tier-3 workflow.json, gated by env vars (default-off, pass-through when unset). Sprint B + C (T04-T08, S955) extend the same pattern to all 5 new templates. So the patterns are wired and one env-var-toggle away rather than one paste away.
 
 ## How we compare to other public n8n template repos
 

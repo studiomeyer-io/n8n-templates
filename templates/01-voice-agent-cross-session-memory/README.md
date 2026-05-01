@@ -10,7 +10,7 @@
 
 ## What this does
 
-A voice provider (Vapi, Retell, Bland, or any custom telephony bridge that posts JSON) sends a webhook when a call ends. The workflow looks up the caller's phone in StudioMeyer Memory, retrieves prior interactions, builds a context-aware prompt, and replies through the LLM **you choose** (default: OpenAI gpt-5-mini, alternative: Anthropic Claude Haiku 4.5). After the reply is sent, it persists the new observation back to memory.
+A voice provider (Vapi, Retell, Bland, or any custom telephony bridge that posts JSON) sends a webhook when a call ends. The workflow looks up the caller's phone in StudioMeyer Memory, retrieves prior interactions, builds a context-aware prompt, and replies through the LLM **you choose** (default: OpenAI gpt-5.4-mini, alternative: Anthropic Claude Haiku 4.5). After the reply is sent, it persists the new observation back to memory.
 
 The result is a voice agent that knows your customer the second time they call. No vector-database setup, no Postgres extension, no manual schema work, just one credential and three minutes to import.
 
@@ -50,7 +50,7 @@ The result is a voice agent that knows your customer the second time they call. 
             ┌────────┴─────────┬─────────┐
             ▼                  ▼         ▼ fallback (typo)
    [OpenAI Reply]      [Anthropic Reply]      │
-   gpt-5-mini default  claude-haiku-4-5       │
+   gpt-5.4-mini default  claude-haiku-4-5       │
    onError: continue   onError: continue      │
    │       │           │       │              │
  success error       success error            │
@@ -142,19 +142,19 @@ The error branch and Memory writes stay identical, you only add nodes, never edi
 
 Per call (assuming ~30s of conversation, ~500 input + 200 output tokens):
 
-| Component | Cost (Stand 2026-04) | Per-call cost |
+| Component | Cost (Stand 2026-05) | Per-call cost |
 |---|---|---|
 | **StudioMeyer Memory** | EUR 0 / 29 / 49 per month | Free tier: 200 credits (one credit per op, ~50 voice calls). Pro tier: unlimited. |
-| **OpenAI gpt-5-mini** (default) | $0.25 / 1M input + $2.00 / 1M output | ~$0.0005 per call |
+| **OpenAI gpt-5.4-mini** (default) | $0.75 / 1M input + $4.50 / 1M output | ~$0.0015 per call |
 | **Anthropic claude-haiku-4-5** | $1 / 1M input + $5 / 1M output | ~$0.0015 per call |
-| Vapi or Retell | provider varies | ~$0.07-0.15 per minute |
+| Vapi or Retell | provider varies | ~$0.07-0.30 per minute (BYOK stack closer to $0.30) |
 
 **Worked example at 1000 calls/month, 30s avg duration:**
 
 | Stack | Memory | LLM | Voice provider | Total /mo |
 |---|---|---|---|---|
-| OpenAI gpt-5-mini | EUR 0 (free tier) | ~$0.50 | ~$35-75 | **~$35-76/mo** |
-| Anthropic claude-haiku-4-5 | EUR 0 | ~$1.50 | ~$35-75 | **~$36-77/mo** |
+| OpenAI gpt-5.4-mini | EUR 0 (free tier) | ~$1.50 | ~$35-150 | **~$36-152/mo** |
+| Anthropic claude-haiku-4-5 | EUR 0 | ~$1.50 | ~$35-150 | **~$37-153/mo** |
 
 Voice provider cost dominates at this scale. LLM + Memory together stay below $2/mo. At 5000+ calls/month you cross the Memory free tier and need Pro at EUR 29/mo. Pro also unlocks the 3D caller-relationship graph at memory.studiomeyer.io/portal/memory/knowledge.
 
@@ -194,7 +194,7 @@ Four patterns ship in `workflow.json` as actual nodes, three opt-in via env vars
 | n8n | >= 2.10.1 (CVE-2026-27493 floor) | self-hosted free / Cloud $20/mo | n8n Cloud trial | always |
 | n8n-nodes-studiomeyer-memory | >= 0.1.0 | free | n/a | always |
 | StudioMeyer Memory | API key | EUR 0 / 29 / 49 | 200 credits (one per op) | always |
-| OpenAI (default) | gpt-5-mini | $0.25 / 1M input + $2.00 / 1M output | $5 trial credit | provider = openai |
+| OpenAI (default) | gpt-5.4-mini | $0.75 / 1M input + $4.50 / 1M output | $5 trial credit | provider = openai |
 | Anthropic | claude-haiku-4-5 | $1 / 1M input + $5 / 1M output | $5 trial credit | provider = anthropic |
 | Vapi or Retell | latest stable | varies | trial available | always |
 

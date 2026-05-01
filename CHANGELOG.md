@@ -4,7 +4,44 @@ All notable changes to this repository will be documented here. The format is lo
 
 ## [Unreleased]
 
-External audit by ChatGPT on 2026-05-01, plus an internal 3-agent code review (Critic / Architect / Research-fact-check) on the same day. Findings consolidated below.
+### Sprint B + Sprint C build complete (Session 955, 2026-05-01)
+
+Five new templates land in this session, completing Sprint B (T04-T06) and Sprint C (T07-T08) per the n8n distribution roadmap. Plus a final Critic pass on T01-T03 found and fixed 3 real bugs that had survived the prior hardening waves. Plus pricing-drift updates across all 8 templates to Stand 2026-05.
+
+#### Added
+
+- **Template 04: [Restaurant Stammgast-Bot](./templates/04-restaurant-stammgast-bot/).** T02-pattern adapted to phone-customer-key extraction. Telegram trigger with `secretToken` HMAC, customer-key fallback chain (E.164 phone regex > Telegram contact-share > Telegram user-id > chat-id), Memory entity-search → entity.open / create, restaurant-host system prompt with prior-order awareness. Cross-link to MenuFlow as the StudioMeyer reference deployment for managed-service customers. 25 nodes, all 4 production patterns wired.
+- **Template 05: [Tourist-Bot Repeat-Visitor](./templates/05-tourist-bot-repeat-visitor/).** T02-pattern adapted to web-chat webhook + sessionId / fingerprint identity. Generic Webhook trigger with `rawBody: true` + `TOURIST_WEBHOOK_SIGNING_SECRET` HMAC, Memory entity for visitor-session, recency-weighted system prompt for re-engagement. Cross-link to MallorcaBot as the StudioMeyer reference deployment for tourism customers. 25 nodes.
+- **Template 06: [Lead-Qualifier with BANT+I and Pipedrive](./templates/06-lead-qualifier-pipedrive/).** T02-pattern + Pipedrive HTTP Request node. Form Webhook trigger + `LEAD_FORM_SIGNING_SECRET` HMAC, BANT+I (Budget / Authority / Need / Timeline / Intent) classification via strict-JSON LLM call, Pipedrive deal creation per qualification bucket (hot / warm / cold) via env-var-configured stage IDs. 26 nodes. Differentiator vs DarwinApps + Equanax existing templates: Memory-layer for repeat-lead detection.
+- **Template 07: [Meeting-Bot Cross-Meeting Continuity](./templates/07-meeting-bot-cross-meeting-continuity/).** T02-pattern + Slack incoming-webhook + participant-set-hash entity-keying (SHA-256 first 16 hex). Auto-detection of Fathom / Otter / Granola / generic webhook shapes. Cross-meeting synthesis prompt that references last 5 meetings with the same participant set. `Webhook Acknowledge` parallel branch sends fast 200-OK to provider while LLM summary work happens async. 26 nodes. Differentiator: cross-meeting continuity, no other backend ships participant-set-keyed memory.
+- **Template 08: [Mem0 / Zep Migration to StudioMeyer Memory](./templates/08-mem0-zep-migration/).** Pure ETL workflow. Manual Trigger or HTTP Trigger. Mem0 + Zep source-API auto-detection in `Validate + Configure`. SplitInBatches loop (10 records / batch). Memory entity-create + observe + learn per record with idempotency tags (source-system + import-date + user-id). Migration Report at end with success / error counts. NO LLM provider required (pure ETL). 12 nodes. Distribution: Hacker News Show HN candidate, the migration whitespace is wide open in 2026 (Zep deprecated their Community Edition, Mem0 has no migration tool, no third-party migration utilities exist).
+- **5 cover images via Flux 2 Max** for T04-T08 (1216x640, navy + gold, $0.07 per image, $0.35 total). Brand-consistent with T01-T03.
+- **STATUS.md extended** to cover all 8 templates with per-template hardened / developer-preview status, what is wired, what is pending.
+
+#### Fixed
+
+- **Template 01 JSON-injection in Respond-to-Webhook node.** The `responseBody` parameter built JSON via raw string-template interpolation `"reply": "{{ $json.replyText }}"`. If the caller transcript contained an unescaped double-quote (e.g., transcript: `He said "hello"`), the resulting JSON body would be malformed and the voice provider would receive a 200 with broken body. Replaced with `JSON.stringify` expression that lets JS handle the escape: `={{ JSON.stringify({ reply: $json.replyText, ... }) }}`. Caught by final 3-agent code review on 2026-05-01.
+- **Template 02 missing `isLlmError` discriminator in LLM Fallback Reply.** T01 and T03 had this discriminator (added in S950 hardening), T02 did not. When `Route by Provider` hit its fallback output (typo in provider value, e.g. `"groq"` instead of `"openai"`), the fallback Code node executed `JSON.stringify(errorRaw).slice(0, 200)` over an object that contained the full prompt with `systemPrompt` containing the customer dossier and recent observations. This JSON-stringified prompt landed in `Memory: Learn Error` as `content` field, so private customer history was leaking into the error audit trail on every router-fallback fire. Now T02's fallback discriminates `isLlmError` and emits `Unknown provider value` for router-fallback without serializing private context. Caught by final 3-agent code review on 2026-05-01.
+- **Template 03 duplicate connection at index 3 of Route by Intent.** The Switch node had 3 explicit rules (note / summary / ask) plus a fallback output, so `connections["Route by Intent"]["main"]` had 4 entries. Index 2 (ask rule) and index 3 (fallback "extra") both pointed to `Memory: Search Context`. Under n8n Switch v3.2 default mode (single-match), the duplicate doesn't double-trigger because only the first matching rule fires. But (a) if a maintainer changes outputMode to all-matches, every ask intent fires Memory: Search Context twice (double API cost + double latency), (b) the redundancy is confusing and a future maintainer cleaning up "duplicate wires" might delete the real ask rule. Removed the index-3 fallback connection. Detect Intent already defaults `intent: "ask"` so the fallback path is never hit in practice. Caught by final 3-agent code review on 2026-05-01.
+- **Pricing-drift across T01-T03 READMEs.** OpenAI's mini tier moved from `gpt-5-mini` at `$0.25 / $2.00` per 1M to `gpt-5.4-mini` at `$0.75 / $4.50` per 1M (verified against platform.openai.com/api/pricing in the Sprint B+C research pass). Per-execution costs in T01-T03 cost-notes tables updated accordingly (~3x increase). Stand-marker on every cost table updated from `Stand 2026-04` to `Stand 2026-05`. T01 Vapi cost line updated from `$0.07-0.15 / min` to `$0.07-0.30 / min (BYOK stack closer to $0.30)` to match the 2026-04 CloudTalk + Reddit pricing reality.
+
+#### Changed
+
+- **`templates/_TEMPLATE/README.md` raised to v0.4.0 standard.** Added the 4 sub-sections that were missing from the skeleton (10b Production Patterns, 10c Hard Compatibility Floor, 10d Tech Stack Matrix, 10e Credentials Checklist). Anyone copying the skeleton for Sprint D+ now starts with all 16 sections in place instead of having to remember which 4 were last-pass-additions. Plus updated default model-IDs in the cost table to gpt-5.4-mini matching the reality after the Sprint B+C drift correction.
+
+#### Quality gate
+
+All 5 new templates structurally validated:
+- 0 missing connection references
+- 0 forbidden top-level keys (`meta` / `staticData` / `versionId` / `id` / `tags`)
+- 0 em-dashes in workflow.json or README.md or cover.md
+- All 5 imported into n8n.studiomeyer.io v2.15.0 with HTTP 200, pre-activation-check passed (all node types recognized including `n8n-nodes-studiomeyer-memory.studioMeyerMemory`, `@n8n/n8n-nodes-langchain.anthropic`, `n8n-nodes-base.openAi`), then deleted to clean up the test workspace.
+- 5 cover images generated and saved (Flux 2 Max, ~500-650 KB each).
+- Final 3-agent review (Critic + Architect) on the 5 new templates plus the 3 fixes in T01-T03 returned no new blockers.
+
+---
+
+### External audit by ChatGPT (2026-05-01 morning), plus internal 3-agent code review
 
 ### Fixed
 

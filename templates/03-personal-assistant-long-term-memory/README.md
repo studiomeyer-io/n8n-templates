@@ -52,7 +52,7 @@ The killer feature is the third one. After three weeks of notes about a project,
                      ┌────────┴─────────┬─────────┐
                      ▼                  ▼         ▼
             [OpenAI Reply]    [Anthropic Reply]   fallback
-            gpt-5-mini default  claude-haiku-4-5     │
+            gpt-5.4-mini default  claude-haiku-4-5     │
             onError: continue   onError: continue    │
             │       │           │       │           │
           success error       success error         │
@@ -88,7 +88,7 @@ All memory is scoped to `project: personal-assistant` so it doesn't mix with you
 3. **Add credentials in n8n:**
    - StudioMeyer Memory API → API Key from [memory.studiomeyer.io/dashboard/keys](https://memory.studiomeyer.io/dashboard/keys).
    - Telegram → bot token from @BotFather.
-   - OpenAI API (default provider) → key from [platform.openai.com](https://platform.openai.com), `gpt-5-mini` is the current default mini tier.
+   - OpenAI API (default provider) → key from [platform.openai.com](https://platform.openai.com), `gpt-5.4-mini` is the current default mini tier (May 2026).
    - Anthropic API (alternative provider) → key from [console.anthropic.com](https://console.anthropic.com), `claude-haiku-4-5` is the current Haiku tier.
 
 4. **Import the workflow** (`workflow.json`).
@@ -99,7 +99,7 @@ All memory is scoped to `project: personal-assistant` so it doesn't mix with you
 
 ## Multi-provider switch
 
-The workflow ships with two providers wired in parallel: OpenAI `gpt-5-mini` (default) and Anthropic `claude-haiku-4-5`. Pick one or run both behind a feature flag.
+The workflow ships with two providers wired in parallel: OpenAI `gpt-5.4-mini` (default) and Anthropic `claude-haiku-4-5`. Pick one or run both behind a feature flag.
 
 **Switch from OpenAI to Anthropic:**
 
@@ -174,10 +174,10 @@ The full pattern: **classify intent with Haiku** → **execute via native n8n to
 
 For a single user, ~50 messages/day mix of notes and questions:
 
-| Component | Cost (Stand 2026-04) | Per-day cost |
+| Component | Cost (Stand 2026-05) | Per-day cost |
 |---|---|---|
 | **StudioMeyer Memory** | EUR 0 / 29 / 49 per month | Free tier is 200 credits (one credit per op, enough for ~50 messages/day in dev). Pro at EUR 29/mo lifts the cap.. |
-| **OpenAI gpt-5-mini** (default) | $0.25 / 1M input + $2.00 / 1M output | ~$0.014/day for 20 Q&A roundtrips (~500 in + 600 out tokens each) |
+| **OpenAI gpt-5.4-mini** (default) | $0.75 / 1M input + $4.50 / 1M output | ~$0.042/day for 20 Q&A roundtrips (~500 in + 600 out tokens each) |
 | **Anthropic claude-haiku-4-5** | $1 / 1M input + $5 / 1M output | ~$0.07/day for the same volume |
 | Telegram Bot API | free | free |
 
@@ -185,7 +185,7 @@ For a single user, ~50 messages/day mix of notes and questions:
 
 | Stack | Memory | LLM | Total /month |
 |---|---|---|---|
-| OpenAI gpt-5-mini | EUR 0 (free tier covers it) | ~$0.40/mo | **~$0.40/mo** |
+| OpenAI gpt-5.4-mini | EUR 0 (free tier covers it) | ~$1.20/mo | **~$1.20/mo** |
 | Anthropic claude-haiku-4-5 | EUR 0 | ~$2/mo | **~$2/mo** |
 
 Past the 200-credit free tier (one credit per op) you need Pro at EUR 29/mo for the lifted monthly cap. Pro also unlocks the 3D knowledge-graph view at memory.studiomeyer.io/portal/memory/knowledge.
@@ -229,7 +229,7 @@ Four patterns ship in `workflow.json` as actual nodes, three opt-in via env vars
 | n8n | >= 2.10.1 (CVE-2026-27493 floor) | self-hosted free / Cloud $20/mo | n8n Cloud trial | always |
 | n8n-nodes-studiomeyer-memory | >= 0.1.0 | free | n/a | always |
 | StudioMeyer Memory | API key | EUR 0 / 29 / 49 | 200 credits (one per op) | always |
-| OpenAI (default) | gpt-5-mini | $0.25 / 1M input + $2.00 / 1M output | $5 trial credit | provider = openai |
+| OpenAI (default) | gpt-5.4-mini | $0.75 / 1M input + $4.50 / 1M output | $5 trial credit | provider = openai |
 | Anthropic | claude-haiku-4-5 | $1 / 1M input + $5 / 1M output | $5 trial credit | provider = anthropic |
 | Telegram (BotFather token) | latest stable | varies | trial available | always |
 
