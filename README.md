@@ -329,6 +329,10 @@ If any of those trust signals do not meet your bar, do not wire these templates 
 - **Long-form tutorials:** [studiomeyer.io/blog](https://studiomeyer.io/blog) (filter: `n8n`)
 - **Full ecosystem:** [ECOSYSTEM.md](./ECOSYSTEM.md)
 
+## About StudioMeyer
+
+[StudioMeyer](https://studiomeyer.io) is an AI and design studio from Palma de Mallorca, building custom websites and AI infrastructure for small and medium businesses. Production stack on Claude Agent SDK, MCP, n8n and an in-house observability and guard layer.
+
 ## License
 
 MIT, see [LICENSE](./LICENSE). Use these templates anywhere, including commercial deployments. Attribution appreciated, not required.
