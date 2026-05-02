@@ -174,7 +174,7 @@ We audited five high-star public n8n template / workflow repos in April 2026 ([a
 | Open governance (CONTRIBUTING + COC + SECURITY + ECOSYSTEM) | rare | yes |
 | Repo CI that validates workflows | rare | GitHub Actions, blocks merges on broken refs / em-dashes / live credentials |
 
-The middle four rows are the gap. We close them with snippet-level documentation today and node-level wiring in v0.4.0.
+The middle four rows are wired as actual opt-in nodes in `workflow.json` across all eight Tier-1+2 templates (HMAC verify, rate limit, idempotency with `Skip If Duplicate` IF gateway plus `Respond Duplicate` respondToWebhook on webhook-trigger templates, error branches), gated by env vars and pass-through by default.
 
 ## FAQ
 
@@ -200,9 +200,9 @@ The middle four rows are the gap. We close them with snippet-level documentation
 
 If your workflow does not need cross-session memory (the bot does not need to remember who called yesterday, the support agent does not need prior tickets, the digest is computed fresh each run), use the sister repo:
 
-**[studiomeyer-io/n8n-workflows](https://github.com/studiomeyer-io/n8n-workflows)** ships five production templates with the same four opt-in patterns this repo ships (HMAC verify, rate limit, idempotency, error branches), but no Memory dependency: Form to CRM Lead Router with BANT scoring (Pipedrive / HubSpot / Salesforce switch), Stripe Lifecycle to Slack with timestamped HMAC and per-event Block Kit, Uptime Monitor with state-change-only alerting, SSL Certificate Expiry Watcher with three-tier alerts, Slack Channel Daily Digest with multi-provider LLM and router-fallback discrimination.
+**[studiomeyer-io/n8n-workflows](https://github.com/studiomeyer-io/n8n-workflows)** ships **15 production templates** (v0.3.1) with the same four opt-in patterns this repo ships (HMAC verify, rate limit, idempotency with `Skip If Duplicate` IF gateway plus `Respond Duplicate` respondToWebhook on webhook-trigger templates, error branches), but no Memory dependency: Form to CRM Lead Router with BANT scoring, Stripe Lifecycle to Slack with timestamped HMAC, Uptime Monitor with state-change-only alerting, SSL Certificate Expiry Watcher, Slack Channel Daily Digest, Calendly to CRM Sync, GitHub Issues Router, RSS to Multi-Channel Social, Calendar Conflict Detector, CSV Bulk Validator, Email to Notion, Postgres to Sheets Sync, Webhook Audit Trail with advisory-locked hash chain, Telegram Translator Bot, YouTube Channel to Notion.
 
-Both repos share the same CI guards, the same hard n8n version floor, the same brand-consistent cover-image standard. The split is deliberate: this repo focuses on what changes when you add Memory, the sister repo focuses on production patterns that work for builders who do not need memory yet.
+Both repos share the **same CI guards** (workflow validation, em-dash guard, forbidden-keys check, credential-leak scan, `$input.first()` semantic lint, idempotency-skipped flow guard), the same hard n8n version floor, the same brand-consistent cover-image standard. The split is deliberate: this repo focuses on what changes when you add Memory, the sister repo focuses on production patterns that work for builders who do not need memory yet.
 
 ## Distribution status
 
@@ -221,7 +221,7 @@ This repo lives on GitHub. Submission to the wider n8n distribution channels hap
 | Reddit r/n8n + r/AI_Agents posts | not yet |
 | LinkedIn DACH PDF carousels | not yet |
 
-The reason we hold submissions back is the production-patterns gap above. Templates with snippet-level docs are good. Templates with opt-in production nodes inside the workflow.json (v0.4.0) are great. We submit when great.
+All eight Tier-1+2 templates ship the four opt-in production patterns as actual nodes in `workflow.json` (v0.4.0-prep). The reason we hold submissions back is end-to-end smoke against real provider backends: Template 01 (Voice Agent) needs a Vapi or Retell trial-account run before the first distribution push.
 
 ## Repo structure
 
@@ -240,7 +240,8 @@ n8n-templates/
 │   ├── FUNDING.yml
 │   ├── ISSUE_TEMPLATE/             # bug + template-request
 │   ├── PULL_REQUEST_TEMPLATE.md
-│   └── workflows/                  # CI: workflow validation, em-dash guard, smoke-test stub
+│   └── workflows/                  # CI: workflow validation, em-dash guard, code-node semantic lint, idempotency-skipped flow guard, smoke-test stub
+├── scripts/                        # idempotent auto-fix helpers (input-access, idempotency-respond)
 ├── examples/                       # sample provider payloads for smoke-testing
 │   ├── README.md                   # how to use the payloads (curl recipes)
 │   ├── vapi-end-of-call.json
@@ -248,13 +249,14 @@ n8n-templates/
 │   └── telegram-message.json
 └── templates/
     ├── _TEMPLATE/                  # skeleton for new contributions
-    ├── 01-voice-agent-cross-session-memory/
-    │   ├── workflow.json
-    │   ├── README.md
-    │   ├── cover.md                # cover image spec
-    │   └── cover.png               # 1200x630 cover
-    ├── 02-customer-support-with-history/
-    └── 03-personal-assistant-long-term-memory/
+    ├── 01-voice-agent-cross-session-memory/             # Vapi/Retell webhook + memory loop
+    ├── 02-customer-support-with-history/                # Telegram + CRM history
+    ├── 03-personal-assistant-long-term-memory/          # Telegram + cross-session recall
+    ├── 04-restaurant-stammgast-bot/                     # Telegram + repeat-guest pattern
+    ├── 05-tourist-bot-repeat-visitor/                   # web webhook + visitor session
+    ├── 06-lead-qualifier-pipedrive/                     # form webhook + BANT-I + Pipedrive
+    ├── 07-meeting-bot-cross-meeting-continuity/         # Fathom/Otter/Granola + Slack
+    └── 08-mem0-zep-migration/                           # ETL out of Mem0 / Zep
 ```
 
 Each template folder is self-contained. Copy any one of them out of this repo and it still works.

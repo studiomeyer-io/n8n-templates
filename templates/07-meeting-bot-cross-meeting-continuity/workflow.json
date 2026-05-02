@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## AI Meeting-Bot Cross-Meeting Continuity Bot\n\n**Stack:** Meeting Webhook (or WhatsApp / web chat) \u2192 StudioMeyer Memory entity lookup \u2192 Claude or OpenAI with meeting set dossier \u2192 reply \u2192 persist outcome.\n\n**Why this beats a stateless bot:** Returning meeting sets don't have to re-explain who they are. The bot greets them by name, references past meetings, and the agent that takes over has full history one click away.\n\n**To swap Meeting Webhook for WhatsApp:** replace the trigger node with a WhatsApp Trigger and the reply node with WhatsApp Send Message. The middle stays identical.\n\n**Production patterns ship in this workflow.json** as opt-in Code nodes. See the orange Sticky Notes below for the four env vars that toggle them on.",
+        "content": "## AI Meeting-Bot Cross-Meeting Continuity Bot\n\n**Stack:** Meeting Webhook (or WhatsApp / web chat) → StudioMeyer Memory entity lookup → Claude or OpenAI with meeting set dossier → reply → persist outcome.\n\n**Why this beats a stateless bot:** Returning meeting sets don't have to re-explain who they are. The bot greets them by name, references past meetings, and the agent that takes over has full history one click away.\n\n**To swap Meeting Webhook for WhatsApp:** replace the trigger node with a WhatsApp Trigger and the reply node with WhatsApp Send Message. The middle stays identical.\n\n**Production patterns ship in this workflow.json** as opt-in Code nodes. See the orange Sticky Notes below for the four env vars that toggle them on.",
         "height": 380,
         "width": 480,
         "color": 6
@@ -19,7 +19,7 @@
     },
     {
       "parameters": {
-        "content": ">> SET ME <<\n\n**Meeting Webhook Bot credential** required.\n\n1. Talk to your meeting platform's webhook configuration, create a bot, get the token.\n2. n8n Credentials \u2192 New \u2192 Meeting Webhook \u2192 paste token.\n3. After activation, message your bot once and check this node's incoming-data view.\n\n**Webhook security:** to harden the trigger, expand `additionalFields` and set `secretToken` to a strong random string. Then re-register the webhook so Meeting Webhook sends `X-Meeting Webhook-Bot-Api-Secret-Token` on every request. The trigger validates it automatically.\n\nIMPORTANT (self-hosted n8n): set `NODE_FUNCTION_ALLOW_BUILTIN=crypto` env var, otherwise the Verify Webhook + Extract Meeting Key code nodes throw at runtime when calling require('crypto').",
+        "content": ">> SET ME <<\n\n**Meeting Webhook Bot credential** required.\n\n1. Talk to your meeting platform's webhook configuration, create a bot, get the token.\n2. n8n Credentials → New → Meeting Webhook → paste token.\n3. After activation, message your bot once and check this node's incoming-data view.\n\n**Webhook security:** to harden the trigger, expand `additionalFields` and set `secretToken` to a strong random string. Then re-register the webhook so Meeting Webhook sends `X-Meeting Webhook-Bot-Api-Secret-Token` on every request. The trigger validates it automatically.\n\nIMPORTANT (self-hosted n8n): set `NODE_FUNCTION_ALLOW_BUILTIN=crypto` env var, otherwise the Verify Webhook + Extract Meeting Key code nodes throw at runtime when calling require('crypto').",
         "height": 320,
         "width": 320,
         "color": 5
@@ -96,7 +96,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Idempotency check (opt-in via IDEMPOTENCY_ENABLED=1).\n// Telegram retries on 5xx. Without dedup, the workflow fires twice and\n// writes Memory twice. This node holds a 5-minute in-memory window of\n// seen update_ids and short-circuits duplicates.\n//\n// To enable: set the n8n env var IDEMPOTENCY_ENABLED to '1'.\n// To disable: leave the env var unset (default). The node passes through.\n//\n// Concurrency note: $getWorkflowStaticData is not atomic and not cluster-\n// aware. Two simultaneous fires of the same update_id may both pass.\n// For production scale, swap the staticData block for Redis SET NX EX 300.\n\nconst enabled = $env.IDEMPOTENCY_ENABLED === '1';\nif (!enabled) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst message = item?.message ?? item;\nconst updateId = item?.update_id ?? message?.update_id;\nconst messageId = message?.message_id;\nconst idempotencyKey = updateId ? `tg-update:${updateId}` : (messageId ? `tg-msg:${messageId}` : null);\n\nif (!idempotencyKey) {\n  // No dedup key available, pass through\n  return [{ json: item }];\n}\n\nconst data = $getWorkflowStaticData('global');\nconst seen = data.seenKeys ?? {};\nconst now = Date.now();\nconst WINDOW_MS = 5 * 60 * 1000;\n\n// Purge expired entries\nfor (const k of Object.keys(seen)) {\n  if (now - seen[k] > WINDOW_MS) delete seen[k];\n}\n\nif (seen[idempotencyKey]) {\n  // Duplicate, short-circuit by returning empty array\n  return [];\n}\nseen[idempotencyKey] = now;\ndata.seenKeys = seen;\n\nreturn [{ json: item }];"
+        "jsCode": "// Idempotency check (opt-in via IDEMPOTENCY_ENABLED=1).\n// Telegram retries on 5xx. Without dedup, the workflow fires twice and\n// writes Memory twice. This node holds a 5-minute in-memory window of\n// seen update_ids and short-circuits duplicates.\n//\n// To enable: set the n8n env var IDEMPOTENCY_ENABLED to '1'.\n// To disable: leave the env var unset (default). The node passes through.\n//\n// Concurrency note: $getWorkflowStaticData is not atomic and not cluster-\n// aware. Two simultaneous fires of the same update_id may both pass.\n// For production scale, swap the staticData block for Redis SET NX EX 300.\n\nconst enabled = $env.IDEMPOTENCY_ENABLED === '1';\nif (!enabled) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst message = item?.message ?? item;\nconst updateId = item?.update_id ?? message?.update_id;\nconst messageId = message?.message_id;\nconst idempotencyKey = updateId ? `tg-update:${updateId}` : (messageId ? `tg-msg:${messageId}` : null);\n\nif (!idempotencyKey) {\n  // No dedup key available, pass through\n  return [{ json: item }];\n}\n\nconst data = $getWorkflowStaticData('global');\nconst seen = data.seenKeys ?? {};\nconst now = Date.now();\nconst WINDOW_MS = 5 * 60 * 1000;\n\n// Purge expired entries\nfor (const k of Object.keys(seen)) {\n  if (now - seen[k] > WINDOW_MS) delete seen[k];\n}\n\nif (seen[idempotencyKey]) {\n  // Duplicate detected. Emit a sentinel item that the\n  // 'Skip If Duplicate' IF node routes to 'Respond Duplicate'\n  // (200 OK + { deduped: true }). Without that 200 the source\n  // provider would hold the HTTP connection until n8n's webhook\n  // timeout (default 30s) and mark delivery failed.\n  return [{ json: { skipped: true, reason: 'duplicate', dedupKey: String(idempotencyKey) } }];\n}\nseen[idempotencyKey] = now;\ndata.seenKeys = seen;\n\nreturn [{ json: item }];"
       },
       "id": "support-pp-3-idempotency",
       "name": "Idempotency Check (opt-in)",
@@ -482,7 +482,7 @@
       "parameters": {
         "resource": "memory",
         "operation": "learn",
-        "content": "=Support interaction with {{ $('Extract Meeting Key').item.json.customerLabel }} ({{ $('Extract Meeting Key').item.json.customerKey }}): \"{{ $('Extract Meeting Key').item.json.messageText.slice(0, 150) }}\" \u2192 Bot resolved with: \"{{ ($json.replyText ?? '').slice(0, 150) }}\"",
+        "content": "=Support interaction with {{ $('Extract Meeting Key').item.json.customerLabel }} ({{ $('Extract Meeting Key').item.json.customerKey }}): \"{{ $('Extract Meeting Key').item.json.messageText.slice(0, 150) }}\" → Bot resolved with: \"{{ ($json.replyText ?? '').slice(0, 150) }}\"",
         "category": "insight",
         "project": "meeting-bot",
         "tags": "=support, customer-{{ $('Extract Meeting Key').item.json.customerKey }}",
@@ -530,6 +530,65 @@
         600,
         100
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-07-meeting-bot-cross-meeting-continuity-skipped",
+              "leftValue": "={{ $json.skipped }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "07-mee-if-skip-dup",
+      "name": "Skip If Duplicate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, deduped: true, reason: \"duplicate\" }) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "X-Dedup",
+                "value": "1"
+              }
+            ]
+          }
+        }
+      },
+      "id": "07-mee-respond-duplicate",
+      "name": "Respond Duplicate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        140
+      ]
     }
   ],
   "connections": {
@@ -570,12 +629,7 @@
       "main": [
         [
           {
-            "node": "Extract Meeting Key",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Webhook Acknowledge",
+            "node": "Skip If Duplicate",
             "type": "main",
             "index": 0
           }
@@ -758,6 +812,24 @@
           },
           {
             "node": "Memory: Learn Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip If Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Respond Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Meeting Key",
             "type": "main",
             "index": 0
           }

@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Voice Agent with Cross-Session Memory (Multi-Provider)\n\n**Stack:** Vapi/Retell webhook \u2192 StudioMeyer Memory \u2192 LLM (you choose: OpenAI, Anthropic, or any provider) \u2192 reply + persist outcome.\n\n**Multi-Provider Switch:** the `Set Provider` node decides which LLM responds. Default is `openai`. Change to `anthropic` (or add your own branch) without rebuilding the rest of the workflow.\n\n**Memory model:** Each unique caller phone becomes an `Entity` of type `caller`. Every call appends an observation. The next call retrieves the caller's history before the LLM speaks.",
+        "content": "## Voice Agent with Cross-Session Memory (Multi-Provider)\n\n**Stack:** Vapi/Retell webhook → StudioMeyer Memory → LLM (you choose: OpenAI, Anthropic, or any provider) → reply + persist outcome.\n\n**Multi-Provider Switch:** the `Set Provider` node decides which LLM responds. Default is `openai`. Change to `anthropic` (or add your own branch) without rebuilding the rest of the workflow.\n\n**Memory model:** Each unique caller phone becomes an `Entity` of type `caller`. Every call appends an observation. The next call retrieves the caller's history before the LLM speaks.",
         "height": 320,
         "width": 480,
         "color": 6
@@ -456,7 +456,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Idempotency check (opt-in via IDEMPOTENCY_ENABLED=1).\n// Vapi/Retell can re-deliver end-of-call-report on transient 5xx. Without\n// dedup the workflow fires twice per call and writes duplicate observations.\n// Idempotency key is the callId (Vapi message.call.id / Retell call.call_id).\n//\n// To enable: set the n8n env var IDEMPOTENCY_ENABLED to '1'.\n// To disable: leave the env var unset (default). The node passes through.\n//\n// Concurrency note: $getWorkflowStaticData is not atomic and not cluster-\n// aware. For production scale, swap the staticData block for Redis SET NX\n// EX 300 (atomic, cluster-aware, auto-expires).\n\nconst enabled = $env.IDEMPOTENCY_ENABLED === '1';\nif (!enabled) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst body = item?.body ?? item;\nconst callId = body?.message?.call?.id ?? body?.call?.call_id;\nconst idempotencyKey = callId ? `voice:${callId}` : null;\n\nif (!idempotencyKey) {\n  // No callId available, pass through (better than dropping)\n  return [{ json: item }];\n}\n\nconst data = $getWorkflowStaticData('global');\nconst seen = data.seenKeys ?? {};\nconst now = Date.now();\nconst WINDOW_MS = 5 * 60 * 1000;\n\nfor (const k of Object.keys(seen)) {\n  if (now - seen[k] > WINDOW_MS) delete seen[k];\n}\n\nif (seen[idempotencyKey]) {\n  return [];\n}\nseen[idempotencyKey] = now;\ndata.seenKeys = seen;\n\nreturn [{ json: item }];"
+        "jsCode": "// Idempotency check (opt-in via IDEMPOTENCY_ENABLED=1).\n// Vapi/Retell can re-deliver end-of-call-report on transient 5xx. Without\n// dedup the workflow fires twice per call and writes duplicate observations.\n// Idempotency key is the callId (Vapi message.call.id / Retell call.call_id).\n//\n// To enable: set the n8n env var IDEMPOTENCY_ENABLED to '1'.\n// To disable: leave the env var unset (default). The node passes through.\n//\n// Concurrency note: $getWorkflowStaticData is not atomic and not cluster-\n// aware. For production scale, swap the staticData block for Redis SET NX\n// EX 300 (atomic, cluster-aware, auto-expires).\n\nconst enabled = $env.IDEMPOTENCY_ENABLED === '1';\nif (!enabled) {\n  return [{ json: $input.first().json }];\n}\n\nconst item = $input.first().json;\nconst body = item?.body ?? item;\nconst callId = body?.message?.call?.id ?? body?.call?.call_id;\nconst idempotencyKey = callId ? `voice:${callId}` : null;\n\nif (!idempotencyKey) {\n  // No callId available, pass through (better than dropping)\n  return [{ json: item }];\n}\n\nconst data = $getWorkflowStaticData('global');\nconst seen = data.seenKeys ?? {};\nconst now = Date.now();\nconst WINDOW_MS = 5 * 60 * 1000;\n\nfor (const k of Object.keys(seen)) {\n  if (now - seen[k] > WINDOW_MS) delete seen[k];\n}\n\nif (seen[idempotencyKey]) {\n  // Duplicate detected. Emit a sentinel item that the\n  // 'Skip If Duplicate' IF node routes to 'Respond Duplicate'\n  // (200 OK + { deduped: true }). Without that 200 the source\n  // provider would hold the HTTP connection until n8n's webhook\n  // timeout (default 30s) and mark delivery failed.\n  return [{ json: { skipped: true, reason: 'duplicate', dedupKey: String(idempotencyKey) } }];\n}\nseen[idempotencyKey] = now;\ndata.seenKeys = seen;\n\nreturn [{ json: item }];"
       },
       "id": "voice-pp-3-idempotency",
       "name": "Idempotency Check (opt-in)",
@@ -613,6 +613,65 @@
       "position": [
         2780,
         -120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-01-voice-agent-cross-session-memory-skipped",
+              "leftValue": "={{ $json.skipped }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "01-voi-if-skip-dup",
+      "name": "Skip If Duplicate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        940,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, deduped: true, reason: \"duplicate\" }) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "X-Dedup",
+                "value": "1"
+              }
+            ]
+          }
+        }
+      },
+      "id": "01-voi-respond-duplicate",
+      "name": "Respond Duplicate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1160,
+        100
       ]
     }
   ],
@@ -815,7 +874,7 @@
       "main": [
         [
           {
-            "node": "Normalize Payload",
+            "node": "Skip If Duplicate",
             "type": "main",
             "index": 0
           }
@@ -867,6 +926,24 @@
           },
           {
             "node": "Memory: Learn Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip If Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Respond Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Payload",
             "type": "main",
             "index": 0
           }
