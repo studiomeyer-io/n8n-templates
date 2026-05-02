@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Memory-free templates
+    url: https://github.com/studiomeyer-io/n8n-workflows
+    about: For workflow templates that do NOT need cross-session memory (Stripe to Slack, uptime monitor, SSL watcher, etc), use the sister repo.
   - name: StudioMeyer Memory product
     url: https://memory.studiomeyer.io
     about: Issues with the hosted Memory backend (auth, API errors, latency).

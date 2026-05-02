@@ -13,11 +13,12 @@
 [![Custom Node](https://img.shields.io/npm/v/n8n-nodes-studiomeyer-memory?label=community%20node&color=blue)](https://www.npmjs.com/package/n8n-nodes-studiomeyer-memory)
 [![Templates](https://img.shields.io/badge/templates-8%20live-brightgreen.svg)](#templates)
 [![Memory backend](https://img.shields.io/badge/memory-studiomeyer.io-d4af37.svg)](https://memory.studiomeyer.io)
+[![Memory-free variant](https://img.shields.io/badge/memory--free-n8n--workflows-555.svg)](https://github.com/studiomeyer-io/n8n-workflows)
 [![CI](https://github.com/studiomeyer-io/n8n-templates/actions/workflows/validate-workflows.yml/badge.svg)](https://github.com/studiomeyer-io/n8n-templates/actions)
 
 Voice agents · customer support · personal assistants · cross-session memory · multi-provider LLM
 
-[Quick Start](#quick-start) · [Templates](#templates) · [Architecture](#architecture) · [Ecosystem](./ECOSYSTEM.md) · [Contributing](./CONTRIBUTING.md)
+[Quick Start](#quick-start) · [Templates](#templates) · [Architecture](#architecture) · [Memory-free variant](#memory-free-variant) · [Ecosystem](./ECOSYSTEM.md) · [Contributing](./CONTRIBUTING.md)
 
 </div>
 
@@ -195,6 +196,14 @@ The middle four rows are the gap. We close them with snippet-level documentation
 
 **Where do I report a security issue?** [SECURITY.md](./SECURITY.md). Email `hello@studiomeyer.io` with subject `[security] n8n-templates`. We aim for 48-hour acknowledgement and a 7-day patch on high-severity issues.
 
+## Memory-free variant
+
+If your workflow does not need cross-session memory (the bot does not need to remember who called yesterday, the support agent does not need prior tickets, the digest is computed fresh each run), use the sister repo:
+
+**[studiomeyer-io/n8n-workflows](https://github.com/studiomeyer-io/n8n-workflows)** ships five production templates with the same four opt-in patterns this repo ships (HMAC verify, rate limit, idempotency, error branches), but no Memory dependency: Form to CRM Lead Router with BANT scoring (Pipedrive / HubSpot / Salesforce switch), Stripe Lifecycle to Slack with timestamped HMAC and per-event Block Kit, Uptime Monitor with state-change-only alerting, SSL Certificate Expiry Watcher with three-tier alerts, Slack Channel Daily Digest with multi-provider LLM and router-fallback discrimination.
+
+Both repos share the same CI guards, the same hard n8n version floor, the same brand-consistent cover-image standard. The split is deliberate: this repo focuses on what changes when you add Memory, the sister repo focuses on production patterns that work for builders who do not need memory yet.
+
 ## Distribution status
 
 This repo lives on GitHub. Submission to the wider n8n distribution channels happens incrementally as templates mature. Current state:
@@ -311,6 +320,7 @@ If any of those trust signals do not meet your bar, do not wire these templates 
 
 ## Related projects
 
+- **Memory-free variant:** [github.com/studiomeyer-io/n8n-workflows](https://github.com/studiomeyer-io/n8n-workflows) (5 production templates without Memory dependency)
 - **Custom node source:** [github.com/studiomeyer-io/n8n-nodes-studiomeyer-memory](https://github.com/studiomeyer-io/n8n-nodes-studiomeyer-memory)
 - **Memory product:** [memory.studiomeyer.io](https://memory.studiomeyer.io) · [marketing page](https://studiomeyer.io/services/memory)
 - **Memory live demo:** [studiomeyer.io/services/memory/demo](https://studiomeyer.io/services/memory/demo) (interactive 3D knowledge graph)

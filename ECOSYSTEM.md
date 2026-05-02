@@ -26,8 +26,9 @@ https://crew.studiomeyer.io/mcp
 
 | Project | Description | Install |
 |---------|-------------|---------|
+| **[n8n-templates](https://github.com/studiomeyer-io/n8n-templates)** *(this repo)* | Memory-backed workflow templates that turn StudioMeyer Memory into the long-term memory layer for voice agents, support bots, personal assistants, and more. | clone + import |
+| **[n8n-workflows](https://github.com/studiomeyer-io/n8n-workflows)** | Memory-free production workflow templates (Form to CRM, Stripe to Slack, Uptime Monitor, SSL Watcher, Slack Digest). Same four production patterns as this repo, no Memory dependency. | clone + import |
 | **[n8n-nodes-studiomeyer-memory](https://github.com/studiomeyer-io/n8n-nodes-studiomeyer-memory)** | Official n8n community node for StudioMeyer Memory. 16 operations across Memory, Entity, Session, Insight resources. | `npm install n8n-nodes-studiomeyer-memory` |
-| **[n8n-templates](https://github.com/studiomeyer-io/n8n-templates)** *(this repo)* | Production-ready workflow templates that turn StudioMeyer Memory into the long-term memory layer for voice agents, support bots, personal assistants, and more. | clone + import |
 
 ## Open Source Tools
 
